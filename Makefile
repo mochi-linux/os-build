@@ -29,7 +29,7 @@ EFI_SIZE_MB   ?= 512
 
 export MOCHI_BUILD MOCHI_TARGET MOCHI_IMAGE IMG_SIZE_MB EFI_SIZE_MB JOBS
 
-.PHONY: all fetch rootfs host chroot image shell \
+.PHONY: all fetch rootfs host populate chroot image shell \
         clean distclean \
         host-headers host-binutils host-gcc1 host-glibc host-gcc2 \
         chroot-bash chroot-coreutils chroot-system chroot-kernel chroot-grub \
@@ -39,7 +39,7 @@ export MOCHI_BUILD MOCHI_TARGET MOCHI_IMAGE IMG_SIZE_MB EFI_SIZE_MB JOBS
 # Primary targets
 ##############################################################################
 
-all: fetch rootfs host chroot image
+all: fetch rootfs host populate chroot image
 
 fetch:
 	bash $(BUILD) fetch
@@ -49,6 +49,9 @@ rootfs:
 
 host:
 	bash $(BUILD) host all
+
+populate:
+	bash $(BUILD) populate
 
 chroot:
 	sudo bash $(BUILD) chroot all
@@ -117,10 +120,11 @@ help:
 	@echo "════════════════════════════════════════════════"
 	@echo ""
 	@echo "Primary targets:"
-	@echo "  make all             Full pipeline (fetch→rootfs→host→chroot→image)"
+	@echo "  make all             Full pipeline (fetch→rootfs→host→populate→chroot→image)"
 	@echo "  make fetch           Download and extract all sources"
 	@echo "  make rootfs          Create MochiOS rootfs directory layout"
 	@echo "  make host            Build entire cross toolchain"
+	@echo "  make populate        Cross-compile bash+coreutils into rootfs; copy glibc libs"
 	@echo "  make chroot          Build all chroot packages  (sudo)"
 	@echo "  make image           Create bootable disk image  (sudo)"
 	@echo "  make shell           Interactive MochiOS chroot shell  (sudo)"

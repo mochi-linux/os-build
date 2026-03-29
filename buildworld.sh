@@ -334,7 +334,6 @@ cmd_rootfs() {
         "$MOCHI_ROOTFS/System/usr/bin" \
         "$MOCHI_ROOTFS/System/usr/sbin" \
         "$MOCHI_ROOTFS/System/usr/lib" \
-        "$MOCHI_ROOTFS/System/usr/lib64" \
         "$MOCHI_ROOTFS/System/usr/include" \
         "$MOCHI_ROOTFS/System/usr/share/doc" \
         "$MOCHI_ROOTFS/System/usr/share/man" \
@@ -355,6 +354,7 @@ cmd_rootfs() {
     # Internal System/ compat symlinks
     ln -sfn usr/lib   "$MOCHI_ROOTFS/System/lib"   2>/dev/null || true
     ln -sfn usr/lib64 "$MOCHI_ROOTFS/System/lib64" 2>/dev/null || true
+    ln -sfn lib       "$MOCHI_ROOTFS/System/usr/lib64" 2>/dev/null || true
     ln -sfn usr/bin   "$MOCHI_ROOTFS/System/bin"   2>/dev/null || true
     ln -sfn usr/sbin  "$MOCHI_ROOTFS/System/sbin"  2>/dev/null || true
 
@@ -373,6 +373,15 @@ cmd_rootfs() {
     chmod 0750 "$MOCHI_ROOTFS/Users/Administrator"
 
     log "==> Rootfs layout ready at $MOCHI_ROOTFS"
+}
+
+# ---------------------------------------------------------------------------
+# Rootfs Bootstrap  (cross-compile bash+coreutils → rootfs, copy glibc libs)
+# ---------------------------------------------------------------------------
+cmd_populate() {
+    hdr "Populating Rootfs (bootstrap tools)"
+    export PATH="$MOCHI_CROSS/bin:$PATH"
+    bash "$SCRIPT_DIR/scripts/host/populate.sh"
 }
 
 # ---------------------------------------------------------------------------
@@ -534,7 +543,8 @@ Commands:
   shell            Enter interactive MochiOS chroot  (requires root)
   clean            Remove build artifacts (keeps sources)
   distclean        Remove everything including sources
-  all              Full pipeline: fetch → rootfs → host → chroot → image
+  populate         Cross-compile bash+coreutils into rootfs; copy glibc libs
+  all              Full pipeline: fetch → rootfs → host → populate → chroot → image
 
 Environment variables:
   MOCHI_BUILD      Build root dir    (default: ./buildfs)
@@ -575,6 +585,7 @@ main() {
         fetch)        cmd_fetch ;;
         rootfs)       cmd_rootfs ;;
         host)         cmd_host "$step" ;;
+        populate)     cmd_populate ;;
         chroot)       cmd_chroot "$step" ;;
         image)        cmd_image ;;
         shell)        cmd_shell ;;
@@ -584,6 +595,7 @@ main() {
             cmd_fetch
             cmd_rootfs
             cmd_host all
+            cmd_populate
             cmd_chroot all
             cmd_image
             ;;
