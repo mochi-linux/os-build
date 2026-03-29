@@ -1,0 +1,290 @@
+#!/usr/bin/env bash
+# MochiOS - Host Cross-Toolchain Build Script
+# Build order: headers → binutils → gcc(stage1) → glibc → gcc(stage2)
+
+set -euo pipefail
+
+# ---------------------------------------------------------------------------
+# Environment  (all can be overridden by caller / buildworld.sh)
+# ---------------------------------------------------------------------------
+: "${MOCHI_BUILD:=/mnt/mochi-build}"
+: "${MOCHI_SOURCES:=$MOCHI_BUILD/sources}"
+: "${MOCHI_SYSROOT:=$MOCHI_BUILD/sysroot}"
+: "${MOCHI_CROSS:=$MOCHI_BUILD/cross}"
+: "${MOCHI_TARGET:=x86_64-mochios-linux-gnu}"
+: "${JOBS:=$(nproc)}"
+
+# Package versions (mirror SOURCES.txt)
+LINUX_VER="7.0-rc5"
+BINUTILS_VER="2.46.0"
+GCC_VER="15.2.0"
+GLIBC_VER="2.43"
+MPFR_VER="4.2.1"
+MPC_VER="1.3.1"
+ISL_VER="0.27"
+
+export PATH="$MOCHI_CROSS/bin:$PATH"
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+log() { echo "[HOST] $(date '+%H:%M:%S')  $*"; }
+die() { echo "[HOST] ERROR: $*" >&2; exit 1; }
+hdr() {
+    echo
+    echo "──────────────────────────────────────────────────────────"
+    echo "  $*"
+    echo "──────────────────────────────────────────────────────────"
+}
+
+require_src() {
+    local path="$1"
+    [ -d "$path" ] || die "Source directory not found: $path"
+}
+
+# Ensure kernel headers are installed in the sysroot; run build_headers if missing
+ensure_headers() {
+    if [ ! -f "$MOCHI_SYSROOT/usr/include/linux/version.h" ]; then
+        log "Kernel headers not found in sysroot – running headers step first ..."
+        build_headers
+    else
+        log "Kernel headers already present in sysroot, skipping."
+    fi
+}
+
+# Link GCC prerequisite libraries into the GCC source tree
+link_gcc_prereqs() {
+    local gcc_src="$MOCHI_SOURCES/gcc-$GCC_VER"
+    for pair in "mpfr:mpfr-$MPFR_VER" "mpc:mpc-$MPC_VER" "isl:isl-$ISL_VER"; do
+        local lname="${pair%%:*}"
+        local dname="${pair##*:}"
+        if [ ! -e "$gcc_src/$lname" ]; then
+            require_src "$MOCHI_SOURCES/$dname"
+            ln -sfn "$MOCHI_SOURCES/$dname" "$gcc_src/$lname"
+            log "  linked $dname → gcc/$lname"
+        fi
+    done
+}
+
+# ---------------------------------------------------------------------------
+# Step 1 – Linux Kernel Headers
+# ---------------------------------------------------------------------------
+build_headers() {
+    hdr "[1/5] Linux Kernel Headers (linux-$LINUX_VER)"
+    local src="$MOCHI_SOURCES/linux-$LINUX_VER"
+    require_src "$src"
+
+    make -C "$src" mrproper
+
+    make -C "$src" headers_install \
+        ARCH=x86_64 \
+        INSTALL_HDR_PATH="$MOCHI_SYSROOT/usr"
+
+    # Remove dot-files left by the install target
+    find "$MOCHI_SYSROOT/usr/include" \( -name '.*' -o -name '.*.cmd' \) -delete
+
+    log "Headers installed → $MOCHI_SYSROOT/usr/include"
+}
+
+# ---------------------------------------------------------------------------
+# Step 2 – Cross Binutils
+# ---------------------------------------------------------------------------
+build_binutils() {
+    hdr "[2/5] Binutils $BINUTILS_VER"
+    local src="$MOCHI_SOURCES/binutils-$BINUTILS_VER"
+    local bld="$MOCHI_BUILD/build-binutils"
+    require_src "$src"
+
+    rm -rf "$bld" && mkdir -p "$bld"
+    cd "$bld"
+
+    "$src/configure" \
+        --prefix="$MOCHI_CROSS" \
+        --with-sysroot="$MOCHI_SYSROOT" \
+        --target="$MOCHI_TARGET" \
+        --disable-nls \
+        --disable-werror \
+        --enable-gprofng=no \
+        --enable-new-dtags \
+        --enable-default-hash-style=gnu
+
+    make -j"$JOBS"
+    make install
+
+    log "Binutils installed → $MOCHI_CROSS"
+}
+
+# ---------------------------------------------------------------------------
+# Step 3 – GCC Stage 1  (no libc, C + minimal C++ only)
+# ---------------------------------------------------------------------------
+build_gcc_stage1() {
+    hdr "[3/5] GCC $GCC_VER – Stage 1 (cross, no libc)"
+    local src="$MOCHI_SOURCES/gcc-$GCC_VER"
+    local bld="$MOCHI_BUILD/build-gcc-stage1"
+    require_src "$src"
+
+    ensure_headers
+    link_gcc_prereqs
+
+    rm -rf "$bld" && mkdir -p "$bld"
+    cd "$bld"
+
+    "$src/configure" \
+        --prefix="$MOCHI_CROSS" \
+        --with-sysroot="$MOCHI_SYSROOT" \
+        --target="$MOCHI_TARGET" \
+        --with-glibc-version="$GLIBC_VER" \
+        --with-newlib \
+        --without-headers \
+        --enable-initfini-array \
+        --disable-nls \
+        --disable-shared \
+        --disable-multilib \
+        --disable-decimal-float \
+        --disable-threads \
+        --disable-libatomic \
+        --disable-libgomp \
+        --disable-libquadmath \
+        --disable-libssp \
+        --disable-libvtv \
+        --disable-libstdcxx \
+        --enable-languages=c,c++
+
+    make -j"$JOBS" all-gcc all-target-libgcc
+    make install-gcc install-target-libgcc
+
+    log "GCC Stage 1 installed → $MOCHI_CROSS"
+}
+
+# ---------------------------------------------------------------------------
+# Step 4 – Glibc  (cross-compiled against stage-1 GCC)
+# ---------------------------------------------------------------------------
+build_glibc() {
+    hdr "[4/5] Glibc $GLIBC_VER"
+    local src="$MOCHI_SOURCES/glibc-$GLIBC_VER"
+    local bld="$MOCHI_BUILD/build-glibc"
+    require_src "$src"
+
+    # x86_64 needs lib64 → lib in the sysroot
+    [ -e "$MOCHI_SYSROOT/usr/lib64" ] || \
+        ln -sfn lib "$MOCHI_SYSROOT/usr/lib64"
+
+    rm -rf "$bld" && mkdir -p "$bld"
+    cd "$bld"
+
+    # Detect the build machine's triplet
+    local build_triplet
+    build_triplet="$(gcc -dumpmachine 2>/dev/null || echo x86_64-pc-linux-gnu)"
+
+    "$src/configure" \
+        --prefix=/usr \
+        --host="$MOCHI_TARGET" \
+        --build="$build_triplet" \
+        --enable-kernel=5.15 \
+        --with-headers="$MOCHI_SYSROOT/usr/include" \
+        --disable-nscd \
+        libc_cv_slibdir=/usr/lib
+
+    make -j"$JOBS"
+    make DESTDIR="$MOCHI_SYSROOT" install
+
+    # Fix ldd hardcoded /usr prefix
+    sed '/RTLDLIST=/s@/usr@@g' -i "$MOCHI_SYSROOT/usr/bin/ldd"
+
+    log "Glibc installed → $MOCHI_SYSROOT"
+}
+
+# ---------------------------------------------------------------------------
+# Step 5 – GCC Stage 2  (full cross compiler with glibc support)
+# ---------------------------------------------------------------------------
+build_gcc_stage2() {
+    hdr "[5/5] GCC $GCC_VER – Stage 2 (full cross compiler)"
+    local src="$MOCHI_SOURCES/gcc-$GCC_VER"
+    local bld="$MOCHI_BUILD/build-gcc-stage2"
+    require_src "$src"
+
+    ensure_headers
+    link_gcc_prereqs
+
+    rm -rf "$bld" && mkdir -p "$bld"
+    cd "$bld"
+
+    "$src/configure" \
+        --prefix="$MOCHI_CROSS" \
+        --with-sysroot="$MOCHI_SYSROOT" \
+        --target="$MOCHI_TARGET" \
+        --enable-initfini-array \
+        --disable-nls \
+        --enable-shared \
+        --disable-multilib \
+        --enable-languages=c,c++ \
+        --enable-default-pie \
+        --enable-default-ssp \
+        --enable-host-pie
+
+    make -j"$JOBS"
+    make install
+
+    log "GCC Stage 2 installed → $MOCHI_CROSS"
+}
+
+# ---------------------------------------------------------------------------
+# Main
+# ---------------------------------------------------------------------------
+usage() {
+    cat <<EOF
+Usage: $0 [STEP]
+
+Steps (run in order):
+  headers    Install Linux kernel headers to sysroot
+  binutils   Build cross binutils
+  gcc1       Build GCC stage 1 (no libc)
+  glibc      Build glibc against stage-1 GCC
+  gcc2       Build GCC stage 2 (full cross compiler)
+  all        Run all steps in order (default)
+
+Environment:
+  MOCHI_BUILD    Build root          (default: /mnt/mochi-build)
+  MOCHI_SOURCES  Extracted sources   (default: \$MOCHI_BUILD/sources)
+  MOCHI_SYSROOT  Cross sysroot       (default: \$MOCHI_BUILD/sysroot)
+  MOCHI_CROSS    Cross tools prefix  (default: \$MOCHI_BUILD/cross)
+  MOCHI_TARGET   Target triplet      (default: x86_64-mochios-linux-gnu)
+  JOBS           Parallel jobs       (default: nproc)
+EOF
+}
+
+main() {
+    log "MochiOS Host Toolchain Build"
+    log "  Target  : $MOCHI_TARGET"
+    log "  Cross   : $MOCHI_CROSS"
+    log "  Sysroot : $MOCHI_SYSROOT"
+    log "  Sources : $MOCHI_SOURCES"
+    log "  Jobs    : $JOBS"
+
+    mkdir -p \
+        "$MOCHI_CROSS" \
+        "$MOCHI_SYSROOT/usr/include" \
+        "$MOCHI_SYSROOT/usr/lib"
+
+    local step="${1:-all}"
+    case "$step" in
+        headers)  build_headers ;;
+        binutils) build_binutils ;;
+        gcc1)     ensure_headers; build_gcc_stage1 ;;
+        glibc)    build_glibc ;;
+        gcc2)     ensure_headers; build_gcc_stage2 ;;
+        all)
+            build_headers
+            build_binutils
+            build_gcc_stage1
+            build_glibc
+            build_gcc_stage2
+            ;;
+        help|-h|--help) usage ;;
+        *) usage; die "Unknown step: '$step'" ;;
+    esac
+
+    log "==> Host toolchain step '$step' complete"
+}
+
+main "$@"
