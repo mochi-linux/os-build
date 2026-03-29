@@ -67,7 +67,8 @@ pacman -S --noconfirm --needed \
     wget \
     curl \
     ca-certificates \
-    unzip
+    unzip \
+    jq
 
 # ---------------------------------------------------------------------------
 # Compression libraries & tools

@@ -22,10 +22,14 @@ set -euo pipefail
 : "${ARIA2_CONNECTIONS:=16}"
 : "${ARIA2_SPLITS:=16}"
 : "${ARIA2_MIN_SPLIT:=1M}"
+: "${ARIA2_PARALLEL:=4}"
+: "${ARIA2_RPC_PORT:=6800}"
+: "${ARIA2_RPC_TOKEN:=mochi-dl}"
 
 export MOCHI_BUILD MOCHI_SOURCES MOCHI_SYSROOT MOCHI_ROOTFS \
        MOCHI_CROSS MOCHI_TARGET MOCHI_IMAGE JOBS \
-       ARIA2_CONNECTIONS ARIA2_SPLITS ARIA2_MIN_SPLIT
+       ARIA2_CONNECTIONS ARIA2_SPLITS ARIA2_MIN_SPLIT \
+       ARIA2_PARALLEL ARIA2_RPC_PORT ARIA2_RPC_TOKEN
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -71,36 +75,122 @@ require_root() {
 }
 
 # ---------------------------------------------------------------------------
-# Download backend  (aria2c preferred, wget/curl as fallback)
+# Download backend
 # ---------------------------------------------------------------------------
-_download() {
+
+# Fallback: single-file sequential download via wget or curl
+_download_single() {
     local url="$1"
     local dest="$2"
     local tmp="${dest}.part"
-
-    if command -v aria2c >/dev/null 2>&1; then
-        aria2c \
-            --dir="$(dirname "$dest")" \
-            --out="$(basename "$dest").part" \
-            --split="$ARIA2_SPLITS" \
-            --max-connection-per-server="$ARIA2_CONNECTIONS" \
-            --min-split-size="$ARIA2_MIN_SPLIT" \
-            --file-allocation=none \
-            --continue=true \
-            --console-log-level=warn \
-            --summary-interval=0 \
-            --show-console-readout=true \
-            "$url"
-        mv "$tmp" "$dest"
-    elif command -v wget >/dev/null 2>&1; then
-        wget --show-progress -q -O "$tmp" "$url"
-        mv "$tmp" "$dest"
+    if command -v wget >/dev/null 2>&1; then
+        wget --show-progress -q -O "$tmp" "$url" && mv "$tmp" "$dest"
     elif command -v curl >/dev/null 2>&1; then
-        curl -L --progress-bar -o "$tmp" "$url"
-        mv "$tmp" "$dest"
+        curl -L --progress-bar -o "$tmp" "$url" && mv "$tmp" "$dest"
     else
         die "No download tool found. Install aria2, wget, or curl."
     fi
+}
+
+# Parallel batch download via aria2c JSON-RPC + jq progress display
+# Usage: _aria2_rpc_fetch <input-file>
+#   input-file format (aria2c -i format):
+#     https://example.com/file.tar.gz
+#       out=file.tar.gz
+_aria2_rpc_fetch() {
+    local input_file="$1"
+    local rpc_base="http://127.0.0.1:${ARIA2_RPC_PORT}/jsonrpc"
+    local auth="token:${ARIA2_RPC_TOKEN}"
+
+    # Start aria2c with JSON-RPC in background
+    aria2c \
+        --input-file="$input_file" \
+        --dir="$MOCHI_SOURCES" \
+        --split="$ARIA2_SPLITS" \
+        --max-connection-per-server="$ARIA2_CONNECTIONS" \
+        --min-split-size="$ARIA2_MIN_SPLIT" \
+        --max-concurrent-downloads="$ARIA2_PARALLEL" \
+        --file-allocation=none \
+        --continue=true \
+        --enable-rpc=true \
+        --rpc-listen-all=false \
+        --rpc-listen-port="$ARIA2_RPC_PORT" \
+        --rpc-secret="$ARIA2_RPC_TOKEN" \
+        --quiet=true \
+        --log="/tmp/aria2-mochi.log" \
+        --log-level=warn &
+    local aria2_pid=$!
+
+    # Kill aria2c on unexpected exit
+    trap "kill $aria2_pid 2>/dev/null; trap - EXIT INT TERM" EXIT INT TERM
+
+    # Wait for RPC to become ready (max 5 seconds)
+    local tries=0
+    until curl -sf --max-time 1 "$rpc_base" \
+        -d "{\"jsonrpc\":\"2.0\",\"id\":0,\"method\":\"aria2.getVersion\",\"params\":[\"${auth}\"]}" \
+        >/dev/null 2>&1; do
+        sleep 0.2
+        tries=$((tries+1))
+        [ "$tries" -gt 25 ] && die "aria2c RPC did not start on port ${ARIA2_RPC_PORT}"
+    done
+
+    log "aria2c RPC ready  (pid $aria2_pid  port ${ARIA2_RPC_PORT}  parallel ${ARIA2_PARALLEL})"
+    echo ""
+
+    # ---------------------------------------------------------------------------
+    # Progress monitor: poll JSON-RPC, parse with jq
+    # ---------------------------------------------------------------------------
+    while true; do
+
+        # -- Global statistics --
+        local gstat
+        gstat=$(curl -sf --max-time 2 "$rpc_base" \
+            --data-raw "{\"jsonrpc\":\"2.0\",\"id\":1,\
+\"method\":\"aria2.getGlobalStat\",\
+\"params\":[\"${auth}\"]}" 2>/dev/null) || { sleep 1; continue; }
+
+        local num_active num_waiting num_done speed_kbps
+        num_active=$( echo "$gstat" | jq -r '.result.numActive')
+        num_waiting=$(echo "$gstat" | jq -r '.result.numWaiting')
+        num_done=$(   echo "$gstat" | jq -r '.result.numStoppedTotal')
+        speed_kbps=$( echo "$gstat" | jq -r '(.result.downloadSpeed | tonumber / 1024 | floor)')
+
+        # -- Per-file active download details --
+        local active_json
+        active_json=$(curl -sf --max-time 2 "$rpc_base" \
+            --data-raw "{\"jsonrpc\":\"2.0\",\"id\":2,\
+\"method\":\"aria2.tellActive\",\
+\"params\":[\"${auth}\",[\"gid\",\"completedLength\",\"totalLength\",\"downloadSpeed\",\"files\"]]}" \
+            2>/dev/null) || active_json='{"result":[]}'
+
+        # -- Render progress table --
+        printf "\033[2K\r"
+        printf "[aria2c] %6d KB/s | active:%-2s waiting:%-2s done:%-3s\n" \
+            "$speed_kbps" "$num_active" "$num_waiting" "$num_done"
+
+        echo "$active_json" | jq -r '
+          .result[] |
+          (.files[0].path | split("/") | last) as $name |
+          (.completedLength | tonumber)          as $done |
+          (.totalLength     | tonumber)          as $total |
+          (.downloadSpeed   | tonumber / 1024 | floor) as $spd |
+          (if $total > 0 then ($done * 100 / $total | floor) else 0 end) as $pct |
+          (if $total > 0 then ($total / 1048576 | floor | tostring) + " MB" else "?" end) as $size |
+          "  \($name)  \($pct)%  [\($done / 1048576 * 10 | floor | . / 10)/\($size)]  \($spd) KB/s"
+        ' 2>/dev/null || true
+
+        # Exit loop when nothing left
+        if [ "$num_active" = "0" ] && [ "$num_waiting" = "0" ]; then
+            echo ""
+            log "All downloads complete."
+            break
+        fi
+
+        sleep 1
+    done
+
+    wait "$aria2_pid" 2>/dev/null || true
+    trap - EXIT INT TERM
 }
 
 # ---------------------------------------------------------------------------
@@ -133,35 +223,95 @@ cmd_fetch() {
     hdr "Downloading Sources"
     mkdir -p "$MOCHI_SOURCES"
 
-    # Print active download backend
     if command -v aria2c >/dev/null 2>&1; then
-        log "Download backend : aria2c  (${ARIA2_CONNECTIONS}x connections, ${ARIA2_SPLITS} splits)"
-    elif command -v wget >/dev/null 2>&1; then
-        log "Download backend : wget  (single connection – install aria2 for faster downloads)"
-    elif command -v curl >/dev/null 2>&1; then
-        log "Download backend : curl  (single connection – install aria2 for faster downloads)"
+        # ----------------------------------------------------------------
+        # aria2c parallel path
+        # ----------------------------------------------------------------
+        if ! command -v jq >/dev/null 2>&1; then
+            log "WARNING: jq not found – progress display disabled (run setup script to install jq)"
+        fi
+
+        log "Backend  : aria2c"
+        log "Settings : ${ARIA2_PARALLEL} files in parallel  |  ${ARIA2_CONNECTIONS} conn/file  |  ${ARIA2_SPLITS} splits  |  min-split ${ARIA2_MIN_SPLIT}"
+
+        # Build aria2c input file for files not yet downloaded
+        local input_file
+        input_file=$(mktemp /tmp/aria2-mochi-XXXXXX.txt)
+        local need_download=0
+
+        for url in "${SOURCES_LIST[@]}"; do
+            local archive
+            archive="$(basename "$url")"
+            if [ ! -f "$MOCHI_SOURCES/$archive" ]; then
+                printf '%s\n  out=%s\n' "$url" "$archive" >> "$input_file"
+                need_download=$((need_download+1))
+                log "  queued : $archive"
+            else
+                log "  cached : $archive"
+            fi
+        done
+
+        if [ "$need_download" -gt 0 ]; then
+            log "Starting parallel download of $need_download file(s) ..."
+            echo ""
+            if command -v jq >/dev/null 2>&1; then
+                _aria2_rpc_fetch "$input_file"
+            else
+                # jq absent – run aria2c directly without RPC progress
+                aria2c \
+                    --input-file="$input_file" \
+                    --dir="$MOCHI_SOURCES" \
+                    --split="$ARIA2_SPLITS" \
+                    --max-connection-per-server="$ARIA2_CONNECTIONS" \
+                    --min-split-size="$ARIA2_MIN_SPLIT" \
+                    --max-concurrent-downloads="$ARIA2_PARALLEL" \
+                    --file-allocation=none \
+                    --continue=true \
+                    --console-log-level=notice \
+                    --summary-interval=5
+            fi
+        else
+            log "All archives already cached – skipping download."
+        fi
+
+        rm -f "$input_file"
+
+    elif command -v wget >/dev/null 2>&1 || command -v curl >/dev/null 2>&1; then
+        # ----------------------------------------------------------------
+        # Sequential fallback (wget / curl)
+        # ----------------------------------------------------------------
+        local backend
+        backend=$(command -v wget >/dev/null 2>&1 && echo wget || echo curl)
+        log "Backend  : $backend  (sequential – install aria2 for parallel downloads)"
+
+        for url in "${SOURCES_LIST[@]}"; do
+            local archive
+            archive="$(basename "$url")"
+            local dest="$MOCHI_SOURCES/$archive"
+            if [ -f "$dest" ]; then
+                log "  cached : $archive"
+            else
+                log "  fetch  : $archive"
+                _download_single "$url" "$dest"
+            fi
+        done
     else
         die "No download tool found. Install aria2, wget, or curl."
     fi
 
+    # ----------------------------------------------------------------
+    # Extract all archives
+    # ----------------------------------------------------------------
+    log ""
+    log "Extracting archives ..."
     for url in "${SOURCES_LIST[@]}"; do
-        local archive
+        local archive dirname
         archive="$(basename "$url")"
-        local dest="$MOCHI_SOURCES/$archive"
-        local dirname
         dirname="$(_archive_dirname "$archive")"
-
-        if [ -f "$dest" ]; then
-            log "Already downloaded : $archive"
-        else
-            log "Fetching : $archive"
-            _download "$url" "$dest"
-        fi
-
         if [ ! -d "$MOCHI_SOURCES/$dirname" ]; then
             _extract "$archive"
         else
-            log "Already extracted  : $dirname"
+            log "  already extracted : $dirname"
         fi
     done
 

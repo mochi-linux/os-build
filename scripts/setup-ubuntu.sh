@@ -67,7 +67,8 @@ apt-get install -y --no-install-recommends \
     wget \
     curl \
     ca-certificates \
-    unzip
+    unzip \
+    jq
 
 # ---------------------------------------------------------------------------
 # Compression libraries & tools
