@@ -95,18 +95,24 @@ build_binutils() {
     local bld="$MOCHI_BUILD/build-binutils"
     require_src "$src"
 
-    rm -rf "$bld" && mkdir -p "$bld"
+    mkdir -p "$bld"
     cd "$bld"
 
-    "$src/configure" \
-        --prefix="$MOCHI_CROSS" \
-        --with-sysroot="$MOCHI_SYSROOT" \
-        --target="$MOCHI_TARGET" \
-        --disable-nls \
-        --disable-werror \
-        --enable-gprofng=no \
-        --enable-new-dtags \
-        --enable-default-hash-style=gnu
+    if [ ! -f "$bld/Makefile" ]; then
+        log "Configuring binutils (fresh) ..."
+
+        "$src/configure" \
+            --prefix="$MOCHI_CROSS" \
+            --with-sysroot="$MOCHI_SYSROOT" \
+            --target="$MOCHI_TARGET" \
+            --disable-nls \
+            --disable-werror \
+            --enable-gprofng=no \
+            --enable-new-dtags \
+            --enable-default-hash-style=gnu
+    else
+        log "Resuming binutils build (Makefile already present, skipping configure) ..."
+    fi
 
     make -j"$JOBS"
     make install
@@ -126,29 +132,35 @@ build_gcc_stage1() {
     ensure_headers
     link_gcc_prereqs
 
-    rm -rf "$bld" && mkdir -p "$bld"
+    mkdir -p "$bld"
     cd "$bld"
 
-    "$src/configure" \
-        --prefix="$MOCHI_CROSS" \
-        --with-sysroot="$MOCHI_SYSROOT" \
-        --target="$MOCHI_TARGET" \
-        --with-glibc-version="$GLIBC_VER" \
-        --with-newlib \
-        --without-headers \
-        --enable-initfini-array \
-        --disable-nls \
-        --disable-shared \
-        --disable-multilib \
-        --disable-decimal-float \
-        --disable-threads \
-        --disable-libatomic \
-        --disable-libgomp \
-        --disable-libquadmath \
-        --disable-libssp \
-        --disable-libvtv \
-        --disable-libstdcxx \
-        --enable-languages=c,c++
+    if [ ! -f "$bld/Makefile" ]; then
+        log "Configuring GCC stage 1 (fresh) ..."
+
+        "$src/configure" \
+            --prefix="$MOCHI_CROSS" \
+            --with-sysroot="$MOCHI_SYSROOT" \
+            --target="$MOCHI_TARGET" \
+            --with-glibc-version="$GLIBC_VER" \
+            --with-newlib \
+            --without-headers \
+            --enable-initfini-array \
+            --disable-nls \
+            --disable-shared \
+            --disable-multilib \
+            --disable-decimal-float \
+            --disable-threads \
+            --disable-libatomic \
+            --disable-libgomp \
+            --disable-libquadmath \
+            --disable-libssp \
+            --disable-libvtv \
+            --disable-libstdcxx \
+            --enable-languages=c,c++
+    else
+        log "Resuming GCC stage 1 build (Makefile already present, skipping configure) ..."
+    fi
 
     make -j"$JOBS" all-gcc all-target-libgcc
     make install-gcc install-target-libgcc
@@ -214,21 +226,29 @@ build_gcc_stage2() {
     ensure_headers
     link_gcc_prereqs
 
-    rm -rf "$bld" && mkdir -p "$bld"
+    mkdir -p "$bld"
     cd "$bld"
 
-    "$src/configure" \
-        --prefix="$MOCHI_CROSS" \
-        --with-sysroot="$MOCHI_SYSROOT" \
-        --target="$MOCHI_TARGET" \
-        --enable-initfini-array \
-        --disable-nls \
-        --enable-shared \
-        --disable-multilib \
-        --enable-languages=c,c++ \
-        --enable-default-pie \
-        --enable-default-ssp \
-        --enable-host-pie
+    # Resume: skip configure if Makefile already exists from a previous run
+    if [ ! -f "$bld/Makefile" ]; then
+        log "Configuring GCC stage 2 (fresh) ..."
+
+        "$src/configure" \
+            --prefix="$MOCHI_CROSS" \
+            --with-sysroot="$MOCHI_SYSROOT" \
+            --target="$MOCHI_TARGET" \
+            --enable-initfini-array \
+            --disable-nls \
+            --enable-shared \
+            --disable-multilib \
+            --enable-languages=c,c++ \
+            --enable-default-pie \
+            --enable-default-ssp \
+            --enable-host-pie \
+            --disable-libstdcxx-pch
+    else
+        log "Resuming GCC stage 2 build (Makefile already present, skipping configure) ..."
+    fi
 
     make -j"$JOBS"
     make install
