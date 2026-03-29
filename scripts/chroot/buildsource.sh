@@ -118,7 +118,8 @@ build_system() {
         --with-shared \
         --without-debug \
         --without-normal \
-        --with-cxx-shared \
+        --without-cxx \
+        --without-cxx-binding \
         --enable-pc-files \
         --with-pkg-config-libdir=/usr/lib/pkgconfig
     make -j"$JOBS"
