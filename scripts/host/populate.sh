@@ -50,8 +50,10 @@ populate_headers() {
     [ -d "$src_inc" ] || die "Sysroot has no include dir: $src_inc"
 
     # Copy kernel and glibc headers verbatim
-    cp -a "$src_inc/" "$dst_inc/" 2>/dev/null || \
-        rsync -a "$src_inc/" "$dst_inc/"
+    # (copy contents, not the include directory itself)
+    rm -rf "$dst_inc"/*
+    cp -a "$src_inc/." "$dst_inc/" 2>/dev/null || \
+        rsync -a "$src_inc/." "$dst_inc/"
 
     log "Headers installed → $dst_inc"
 }
@@ -63,12 +65,24 @@ populate_glibc() {
     hdr "[1/3] Copying glibc libraries to rootfs"
 
     local rootlib="$MOCHI_ROOTFS/System/usr/lib"
+    local rootsyslib="$MOCHI_ROOTFS/System/lib"
+    local rootsyslib64="$MOCHI_ROOTFS/System/lib64"
     mkdir -p "$rootlib"
+    mkdir -p "$rootsyslib" "$rootsyslib64"
 
     # Copy all shared libraries, static archives, and CRT object files
     cp -a "$MOCHI_SYSROOT/usr/lib/"*.so*  "$rootlib/" 2>/dev/null || true
     cp -a "$MOCHI_SYSROOT/usr/lib/"*.a    "$rootlib/" 2>/dev/null || true
     cp -a "$MOCHI_SYSROOT/usr/lib/"*.o    "$rootlib/" 2>/dev/null || true
+
+    # The ELF interpreter (ld-linux) and some core runtime objects may live
+    # in /lib or /lib64 instead of /usr/lib.
+    cp -a "$MOCHI_SYSROOT/lib/"*.so*      "$rootsyslib/" 2>/dev/null || true
+    cp -a "$MOCHI_SYSROOT/lib/"*.a        "$rootsyslib/" 2>/dev/null || true
+    cp -a "$MOCHI_SYSROOT/lib/"*.o        "$rootsyslib/" 2>/dev/null || true
+    cp -a "$MOCHI_SYSROOT/lib64/"*.so*    "$rootsyslib64/" 2>/dev/null || true
+    cp -a "$MOCHI_SYSROOT/lib64/"*.a      "$rootsyslib64/" 2>/dev/null || true
+    cp -a "$MOCHI_SYSROOT/lib64/"*.o      "$rootsyslib64/" 2>/dev/null || true
 
     # glibc also installs to /usr/lib/gconv/, /usr/lib/audit/, etc.
     for subdir in gconv audit; do

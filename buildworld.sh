@@ -74,6 +74,16 @@ require_root() {
     [ "$(id -u)" -eq 0 ] || die "This command requires root (sudo)."
 }
 
+_ensure_host_devpts() {
+    if ! mountpoint -q /dev/pts 2>/dev/null; then
+        mkdir -p /dev/pts
+        mount -t devpts devpts /dev/pts -o gid=5,mode=0620,ptmxmode=0666
+    fi
+    if [ ! -e /dev/ptmx ]; then
+        ln -sfn /dev/pts/ptmx /dev/ptmx
+    fi
+}
+
 # ---------------------------------------------------------------------------
 # Download backend
 # ---------------------------------------------------------------------------
@@ -399,7 +409,7 @@ cmd_host() {
 # ---------------------------------------------------------------------------
 _mount_chroot() {
     mount --bind /dev             "$MOCHI_ROOTFS/dev"
-    mount -t devpts devpts        "$MOCHI_ROOTFS/dev/pts" -o gid=5,mode=0620
+    mount -t devpts devpts        "$MOCHI_ROOTFS/dev/pts" -o gid=5,mode=0620,ptmxmode=0666
     mount -t proc   proc          "$MOCHI_ROOTFS/proc"
     mount -t sysfs  sysfs         "$MOCHI_ROOTFS/sys"
     mount -t tmpfs  tmpfs         "$MOCHI_ROOTFS/run"
@@ -504,8 +514,10 @@ _enter_chroot() {
     # Bind-mount sources and build temp dir into chroot
     mkdir -p "$MOCHI_ROOTFS/sources" "$MOCHI_ROOTFS/build"
     mount --bind "$MOCHI_SOURCES"      "$MOCHI_ROOTFS/sources"
+    mount -o remount,bind,exec "$MOCHI_ROOTFS/sources" 2>/dev/null || true
     mount --bind "$MOCHI_BUILD/build"  "$MOCHI_ROOTFS/build"  2>/dev/null || \
-        mount -t tmpfs tmpfs "$MOCHI_ROOTFS/build"
+        mount -t tmpfs -o exec tmpfs "$MOCHI_ROOTFS/build"
+    mount -o remount,bind,exec "$MOCHI_ROOTFS/build" 2>/dev/null || true
 
     _setup_chroot_toolchain
     _mount_chroot
@@ -533,6 +545,7 @@ cmd_chroot() {
     local step="${1:-all}"
     hdr "CHROOT Build: $step"
     require_root
+    _ensure_host_devpts
     mkdir -p "$MOCHI_BUILD/build"
     _enter_chroot "$step"
 }
@@ -543,6 +556,7 @@ cmd_chroot() {
 cmd_shell() {
     hdr "MochiOS Chroot Shell"
     require_root
+    _ensure_host_devpts
     _mount_chroot
     mkdir -p "$MOCHI_ROOTFS/sources"
     mount --bind "$MOCHI_SOURCES" "$MOCHI_ROOTFS/sources"
