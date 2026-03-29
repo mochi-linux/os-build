@@ -251,7 +251,8 @@ build_gcc_stage2() {
             --enable-default-ssp \
             --enable-host-pie \
             --disable-libstdcxx-pch \
-            --disable-libsanitizer
+            --disable-libsanitizer \
+            ac_cv_sys_file_offset_bits=no
 
         touch "$bld/.configured"
     else
