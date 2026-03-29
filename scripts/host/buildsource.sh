@@ -7,7 +7,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Environment  (all can be overridden by caller / buildworld.sh)
 # ---------------------------------------------------------------------------
-: "${MOCHI_BUILD:=/mnt/mochi-build}"
+: "${MOCHI_BUILD:=$PWD/buildfs}"
 : "${MOCHI_SOURCES:=$MOCHI_BUILD/sources}"
 : "${MOCHI_SYSROOT:=$MOCHI_BUILD/sysroot}"
 : "${MOCHI_CROSS:=$MOCHI_BUILD/cross}"
@@ -244,7 +244,7 @@ Steps (run in order):
   all        Run all steps in order (default)
 
 Environment:
-  MOCHI_BUILD    Build root          (default: /mnt/mochi-build)
+  MOCHI_BUILD    Build root          (default: ./buildfs)
   MOCHI_SOURCES  Extracted sources   (default: \$MOCHI_BUILD/sources)
   MOCHI_SYSROOT  Cross sysroot       (default: \$MOCHI_BUILD/sysroot)
   MOCHI_CROSS    Cross tools prefix  (default: \$MOCHI_BUILD/cross)

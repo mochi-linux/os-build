@@ -21,7 +21,7 @@ SHELL      := /usr/bin/env bash
 BUILD      ?= buildworld.sh
 JOBS       ?= $(shell nproc)
 
-MOCHI_BUILD   ?= /mnt/mochi-build
+MOCHI_BUILD   ?= $(CURDIR)/buildfs
 MOCHI_TARGET  ?= x86_64-mochios-linux-gnu
 MOCHI_IMAGE   ?= $(MOCHI_BUILD)/mochios.img
 IMG_SIZE_MB   ?= 4096
@@ -144,7 +144,7 @@ help:
 	@echo "  make distclean       Remove everything"
 	@echo ""
 	@echo "Variables:"
-	@echo "  MOCHI_BUILD=$(MOCHI_BUILD)"
+	@echo "  MOCHI_BUILD=$(MOCHI_BUILD)  (default: ./buildfs)"
 	@echo "  MOCHI_TARGET=$(MOCHI_TARGET)"
 	@echo "  MOCHI_IMAGE=$(MOCHI_IMAGE)"
 	@echo "  IMG_SIZE_MB=$(IMG_SIZE_MB)"

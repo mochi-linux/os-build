@@ -15,7 +15,7 @@ param(
     [string]$Command   = "all",
     [string]$Step      = "",
     [string]$Distro    = "",
-    [string]$BuildRoot = "/mnt/mochi-build",
+    [string]$BuildRoot = "",
     [int]$Jobs         = 0,
     [switch]$Help
 )
@@ -85,6 +85,10 @@ if (-not $ScriptDirWsl) {
                                       -replace "\\", "/")
 }
 $ScriptDirWsl = $ScriptDirWsl.Trim()
+
+# Default BuildRoot = <project>/buildfs (same convention as buildworld.sh)
+if (-not $BuildRoot) { $BuildRoot = "$ScriptDirWsl/buildfs" }
+
 Write-Log "Project path   : $ScriptDir"
 Write-Log "WSL path       : $ScriptDirWsl"
 

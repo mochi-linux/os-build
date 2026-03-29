@@ -1,9 +1,9 @@
 # MochiOS - Git Ignore Rules
 
 # ---------------------------------------------------------------------------
-# Build output (everything under the build root)
+# Build output (default build root: ./buildfs)
 # ---------------------------------------------------------------------------
-/mnt/mochi-build/
+buildfs/
 build-*/
 sysroot/
 cross/

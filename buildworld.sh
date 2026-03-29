@@ -11,7 +11,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Configuration  (override via environment before calling this script)
 # ---------------------------------------------------------------------------
-: "${MOCHI_BUILD:=/mnt/mochi-build}"
+: "${MOCHI_BUILD:=$PWD/buildfs}"
 : "${MOCHI_SOURCES:=$MOCHI_BUILD/sources}"
 : "${MOCHI_SYSROOT:=$MOCHI_BUILD/sysroot}"
 : "${MOCHI_ROOTFS:=$MOCHI_BUILD/rootfs}"
@@ -321,7 +321,7 @@ Commands:
   all              Full pipeline: fetch → rootfs → host → chroot → image
 
 Environment variables:
-  MOCHI_BUILD      Build root dir    (default: /mnt/mochi-build)
+  MOCHI_BUILD      Build root dir    (default: ./buildfs)
   MOCHI_TARGET     Cross triplet     (default: x86_64-mochios-linux-gnu)
   MOCHI_IMAGE      Output image path (default: \$MOCHI_BUILD/mochios.img)
   IMG_SIZE_MB      Disk image size   (default: 4096)

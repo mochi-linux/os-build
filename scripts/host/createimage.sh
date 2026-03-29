@@ -7,7 +7,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # Environment
 # ---------------------------------------------------------------------------
-: "${MOCHI_BUILD:=/mnt/mochi-build}"
+: "${MOCHI_BUILD:=$PWD/buildfs}"
 : "${MOCHI_ROOTFS:=$MOCHI_BUILD/rootfs}"
 : "${MOCHI_IMAGE:=$MOCHI_BUILD/mochios.img}"
 : "${IMG_SIZE_MB:=4096}"
