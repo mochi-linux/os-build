@@ -116,6 +116,7 @@ build_system() {
         --prefix=/usr \
         --mandir=/usr/share/man \
         --with-shared \
+        --enable-widec \
         --without-debug \
         --without-normal \
         --without-cxx \
@@ -124,6 +125,11 @@ build_system() {
         --with-pkg-config-libdir=/usr/lib/pkgconfig
     make -j"$JOBS"
     make install
+    for hdr in curses.h ncurses.h term.h termcap.h; do
+        if [ -e "/usr/include/ncursesw/$hdr" ] && [ ! -e "/usr/include/$hdr" ]; then
+            ln -sfn "ncursesw/$hdr" "/usr/include/$hdr" 2>/dev/null || true
+        fi
+    done
     # Ensure libncursesw → libncurses compat links
     for lib in ncurses form panel menu; do
         ln -sfn "lib${lib}w.so" "/usr/lib/lib${lib}.so" 2>/dev/null || true
