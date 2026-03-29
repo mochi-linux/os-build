@@ -19,9 +19,13 @@ set -euo pipefail
 : "${MOCHI_TARGET:=x86_64-mochios-linux-gnu}"
 : "${MOCHI_IMAGE:=$MOCHI_BUILD/mochios.img}"
 : "${JOBS:=$(nproc)}"
+: "${ARIA2_CONNECTIONS:=16}"
+: "${ARIA2_SPLITS:=16}"
+: "${ARIA2_MIN_SPLIT:=1M}"
 
 export MOCHI_BUILD MOCHI_SOURCES MOCHI_SYSROOT MOCHI_ROOTFS \
-       MOCHI_CROSS MOCHI_TARGET MOCHI_IMAGE JOBS
+       MOCHI_CROSS MOCHI_TARGET MOCHI_IMAGE JOBS \
+       ARIA2_CONNECTIONS ARIA2_SPLITS ARIA2_MIN_SPLIT
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -67,51 +71,97 @@ require_root() {
 }
 
 # ---------------------------------------------------------------------------
+# Download backend  (aria2c preferred, wget/curl as fallback)
+# ---------------------------------------------------------------------------
+_download() {
+    local url="$1"
+    local dest="$2"
+    local tmp="${dest}.part"
+
+    if command -v aria2c >/dev/null 2>&1; then
+        aria2c \
+            --dir="$(dirname "$dest")" \
+            --out="$(basename "$dest").part" \
+            --split="$ARIA2_SPLITS" \
+            --max-connection-per-server="$ARIA2_CONNECTIONS" \
+            --min-split-size="$ARIA2_MIN_SPLIT" \
+            --file-allocation=none \
+            --continue=true \
+            --console-log-level=warn \
+            --summary-interval=0 \
+            --show-console-readout=true \
+            "$url"
+        mv "$tmp" "$dest"
+    elif command -v wget >/dev/null 2>&1; then
+        wget --show-progress -q -O "$tmp" "$url"
+        mv "$tmp" "$dest"
+    elif command -v curl >/dev/null 2>&1; then
+        curl -L --progress-bar -o "$tmp" "$url"
+        mv "$tmp" "$dest"
+    else
+        die "No download tool found. Install aria2, wget, or curl."
+    fi
+}
+
+# ---------------------------------------------------------------------------
 # Source fetch & extract
 # ---------------------------------------------------------------------------
+_extract() {
+    local archive="$1"
+    local dest="$MOCHI_SOURCES/$archive"
+    log "Extracting: $archive"
+    case "$archive" in
+        *.tar.xz)  tar -xJf "$dest" -C "$MOCHI_SOURCES" ;;
+        *.tar.gz)  tar -xzf "$dest" -C "$MOCHI_SOURCES" ;;
+        *.tar.bz2) tar -xjf "$dest" -C "$MOCHI_SOURCES" ;;
+        *.zip)     unzip -q "$dest" -d "$MOCHI_SOURCES" ;;
+        *) die "Unknown archive format: $archive" ;;
+    esac
+}
+
+_archive_dirname() {
+    local archive="$1"
+    local d="$archive"
+    d="${d%.tar.xz}"
+    d="${d%.tar.gz}"
+    d="${d%.tar.bz2}"
+    d="${d%.zip}"
+    echo "$d"
+}
+
 cmd_fetch() {
     hdr "Downloading Sources"
     mkdir -p "$MOCHI_SOURCES"
+
+    # Print active download backend
+    if command -v aria2c >/dev/null 2>&1; then
+        log "Download backend : aria2c  (${ARIA2_CONNECTIONS}x connections, ${ARIA2_SPLITS} splits)"
+    elif command -v wget >/dev/null 2>&1; then
+        log "Download backend : wget  (single connection – install aria2 for faster downloads)"
+    elif command -v curl >/dev/null 2>&1; then
+        log "Download backend : curl  (single connection – install aria2 for faster downloads)"
+    else
+        die "No download tool found. Install aria2, wget, or curl."
+    fi
 
     for url in "${SOURCES_LIST[@]}"; do
         local archive
         archive="$(basename "$url")"
         local dest="$MOCHI_SOURCES/$archive"
+        local dirname
+        dirname="$(_archive_dirname "$archive")"
 
         if [ -f "$dest" ]; then
-            log "Already downloaded: $archive"
+            log "Already downloaded : $archive"
         else
-            log "Fetching: $archive"
-            if command -v wget >/dev/null 2>&1; then
-                wget -q --show-progress -O "$dest" "$url"
-            elif command -v curl >/dev/null 2>&1; then
-                curl -L --progress-bar -o "$dest" "$url"
-            else
-                die "Neither wget nor curl found; install one to fetch sources."
-            fi
+            log "Fetching : $archive"
+            _download "$url" "$dest"
         fi
 
-        # Extract only if the directory does not yet exist
-        local dirname="${archive%.tar.*}"
-        dirname="${dirname%.gz}"   # handle .tar.gz → strip .tar later
-        # Recompute properly:
-        case "$archive" in
-            *.tar.xz|*.tar.gz|*.tar.bz2)
-                dirname="${archive}"
-                dirname="${dirname%.tar.xz}"
-                dirname="${dirname%.tar.gz}"
-                dirname="${dirname%.tar.bz2}"
-                ;;
-        esac
-
         if [ ! -d "$MOCHI_SOURCES/$dirname" ]; then
-            log "Extracting: $archive"
-            case "$archive" in
-                *.tar.xz)  tar -xJf "$dest" -C "$MOCHI_SOURCES" ;;
-                *.tar.gz)  tar -xzf "$dest" -C "$MOCHI_SOURCES" ;;
-                *.tar.bz2) tar -xjf "$dest" -C "$MOCHI_SOURCES" ;;
-                *) die "Unknown archive format: $archive" ;;
-            esac
+            _extract "$archive"
+        else
+            log "Already extracted  : $dirname"
         fi
     done
 

@@ -63,6 +63,7 @@ pacman -S --noconfirm --needed \
 # ---------------------------------------------------------------------------
 log "Installing download tools ..."
 pacman -S --noconfirm --needed \
+    aria2 \
     wget \
     curl \
     ca-certificates \

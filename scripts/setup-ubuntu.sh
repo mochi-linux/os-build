@@ -63,6 +63,7 @@ apt-get install -y --no-install-recommends \
 # ---------------------------------------------------------------------------
 log "Installing download tools ..."
 apt-get install -y --no-install-recommends \
+    aria2 \
     wget \
     curl \
     ca-certificates \
