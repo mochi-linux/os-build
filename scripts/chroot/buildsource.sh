@@ -270,38 +270,18 @@ build_kernel() {
 
     make mrproper
 
-    # Base config
-    make defconfig
-
-    # MochiOS kernel feature set
-    scripts/config \
-        --enable  CONFIG_EFI \
-        --enable  CONFIG_EFI_STUB \
-        --enable  CONFIG_EFI_MIXED \
-        --enable  CONFIG_BTRFS_FS \
-        --enable  CONFIG_EXT4_FS \
-        --enable  CONFIG_VFAT_FS \
-        --enable  CONFIG_TMPFS \
-        --enable  CONFIG_PROC_FS \
-        --enable  CONFIG_SYSFS \
-        --enable  CONFIG_DEVTMPFS \
-        --enable  CONFIG_DEVTMPFS_MOUNT \
-        --enable  CONFIG_MODULES \
-        --enable  CONFIG_MODULE_UNLOAD \
-        --enable  CONFIG_VIRTIO \
-        --enable  CONFIG_VIRTIO_PCI \
-        --enable  CONFIG_VIRTIO_BLK \
-        --enable  CONFIG_VIRTIO_NET \
-        --enable  CONFIG_VIRTIO_BALLOON \
-        --enable  CONFIG_DRM_VIRTIO_GPU \
-        --enable  CONFIG_NET \
-        --enable  CONFIG_INET \
-        --enable  CONFIG_IPV6 \
-        --enable  CONFIG_PACKET \
-        --set-str CONFIG_DEFAULT_HOSTNAME "mochios"
-
-    # Re-sync any implicit dependencies
-    make olddefconfig
+    # Use mochi.config if available, otherwise fall back to defconfig
+    : "${MOCHI_KCONFIG:=/sources/mochi.config}"
+    if [ -f "$MOCHI_KCONFIG" ]; then
+        log "Using kernel config: $MOCHI_KCONFIG"
+        cp "$MOCHI_KCONFIG" .config
+        # Silently accept any new symbols introduced since the config was generated
+        make olddefconfig
+    else
+        log "WARNING: $MOCHI_KCONFIG not found – falling back to defconfig"
+        make defconfig
+        make olddefconfig
+    fi
 
     make -j"$JOBS" bzImage modules
 

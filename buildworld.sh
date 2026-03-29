@@ -261,6 +261,16 @@ _enter_chroot() {
        "$MOCHI_ROOTFS/scripts/chroot/buildsource.sh"
     chmod +x "$MOCHI_ROOTFS/scripts/chroot/buildsource.sh"
 
+    # Stage kernel config into sources so it is visible at /sources/mochi.config
+    local kconfig_src="$SCRIPT_DIR/config/mochi.config"
+    if [ -f "$kconfig_src" ]; then
+        mkdir -p "$MOCHI_SOURCES"
+        cp "$kconfig_src" "$MOCHI_SOURCES/mochi.config"
+        log "Kernel config staged → $MOCHI_SOURCES/mochi.config"
+    else
+        log "WARNING: config/mochi.config not found; kernel will use defconfig fallback"
+    fi
+
     # Bind-mount sources and build temp dir into chroot
     mkdir -p "$MOCHI_ROOTFS/sources" "$MOCHI_ROOTFS/build"
     mount --bind "$MOCHI_SOURCES"      "$MOCHI_ROOTFS/sources"
@@ -276,6 +286,7 @@ _enter_chroot() {
         PATH=/usr/bin:/usr/sbin:/bin:/sbin
         MOCHI_SOURCES=/sources
         MOCHI_BUILD=/build
+        MOCHI_KCONFIG=/sources/mochi.config
         JOBS="$JOBS"
     )
 
