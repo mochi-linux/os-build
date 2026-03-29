@@ -189,6 +189,11 @@ _aria2_rpc_fetch() {
         sleep 1
     done
 
+    # Graceful shutdown via RPC; fall back to SIGTERM if RPC call fails
+    curl -sf --max-time 5 "$rpc_base" \
+        --data-raw "{\"jsonrpc\":\"2.0\",\"id\":99,\"method\":\"aria2.shutdown\",\"params\":[\"${auth}\"]}" \
+        >/dev/null 2>&1 || kill "$aria2_pid" 2>/dev/null || true
+
     wait "$aria2_pid" 2>/dev/null || true
     trap - EXIT INT TERM
 }

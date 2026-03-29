@@ -169,21 +169,29 @@ build_glibc() {
     [ -e "$MOCHI_SYSROOT/usr/lib64" ] || \
         ln -sfn lib "$MOCHI_SYSROOT/usr/lib64"
 
-    rm -rf "$bld" && mkdir -p "$bld"
+    mkdir -p "$bld"
     cd "$bld"
 
-    # Detect the build machine's triplet
-    local build_triplet
-    build_triplet="$(gcc -dumpmachine 2>/dev/null || echo x86_64-pc-linux-gnu)"
+    # Resume: skip configure if Makefile already exists from a previous run
+    if [ ! -f "$bld/Makefile" ]; then
+        log "Configuring glibc (fresh) ..."
 
-    "$src/configure" \
-        --prefix=/usr \
-        --host="$MOCHI_TARGET" \
-        --build="$build_triplet" \
-        --enable-kernel=5.15 \
-        --with-headers="$MOCHI_SYSROOT/usr/include" \
-        --disable-nscd \
-        libc_cv_slibdir=/usr/lib
+        # Detect the build machine's triplet
+        local build_triplet
+        build_triplet="$(gcc -dumpmachine 2>/dev/null || echo x86_64-pc-linux-gnu)"
+
+        "$src/configure" \
+            --prefix=/usr \
+            --host="$MOCHI_TARGET" \
+            --build="$build_triplet" \
+            --enable-kernel=5.15 \
+            --with-headers="$MOCHI_SYSROOT/usr/include" \
+            --disable-nscd \
+            --disable-werror \
+            libc_cv_slibdir=/usr/lib
+    else
+        log "Resuming glibc build (Makefile already present, skipping configure) ..."
+    fi
 
     make -j"$JOBS"
     make DESTDIR="$MOCHI_SYSROOT" install
