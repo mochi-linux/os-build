@@ -407,13 +407,79 @@ _mount_chroot() {
 }
 
 _umount_chroot() {
-    umount -R "$MOCHI_ROOTFS/dev"     2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/proc"    2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/sys"     2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/run"     2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/tmp"     2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/sources" 2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/build"   2>/dev/null || true
+    umount -R "$MOCHI_ROOTFS/dev"          2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/proc"         2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/sys"          2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/run"          2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/tmp"          2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/sources"      2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/build"        2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/cross"        2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/host-bin"     2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/host-lib64"   2>/dev/null || true
+    umount    "$MOCHI_ROOTFS/host-usrlib"  2>/dev/null || true
+}
+
+# Mount the cross-compiler and host fallback tools into the chroot, then
+# create thin wrapper scripts so 'gcc', 'cc', 'g++', etc. work natively.
+_setup_chroot_toolchain() {
+    # Find the real path of the host's dynamic linker
+    local host_ld
+    for _try in /lib64/ld-linux-x86-64.so.2 \
+                /usr/lib/x86_64-linux-gnu/ld-linux-x86-64.so.2 \
+                /usr/lib/ld-linux-x86-64.so.2; do
+        if [ -e "$_try" ]; then
+            host_ld=$(readlink -f "$_try" 2>/dev/null || echo "$_try")
+            break
+        fi
+    done
+    : "${host_ld:=/lib64/ld-linux-x86-64.so.2}"
+    local host_lib64_dir
+    host_lib64_dir=$(dirname "$host_ld")
+
+    # Bind-mount the cross-compiler tree
+    mkdir -p "$MOCHI_ROOTFS/cross"
+    mount --bind "$MOCHI_CROSS" "$MOCHI_ROOTFS/cross"
+
+    # Bind-mount host /usr/bin for fallback tools (sed, grep, awk, make …)
+    mkdir -p "$MOCHI_ROOTFS/host-bin"
+    mount --bind /usr/bin "$MOCHI_ROOTFS/host-bin"
+
+    # Bind-mount the directory containing the host ld-linux + glibc so the
+    # cross-compiler binary can resolve its own shared-library dependencies.
+    mkdir -p "$MOCHI_ROOTFS/host-lib64"
+    mount --bind "$host_lib64_dir" "$MOCHI_ROOTFS/host-lib64"
+
+    # Also mount /usr/lib for extra host libraries (mpc, mpfr, gmp, z, …)
+    mkdir -p "$MOCHI_ROOTFS/host-usrlib"
+    mount --bind /usr/lib "$MOCHI_ROOTFS/host-usrlib" 2>/dev/null || true
+
+    local chroot_ld="/host-lib64/$(basename "$host_ld")"
+    local chroot_lp="/host-lib64:/host-usrlib"
+
+    # Write thin wrappers into the rootfs so the chroot sees a native toolchain
+    local wrap_dir="$MOCHI_ROOTFS/usr/bin"
+    mkdir -p "$wrap_dir"
+
+    for _t in gcc cc; do
+        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-gcc --sysroot=/ "$@"\n' \
+            "$chroot_ld" "$chroot_lp" "$MOCHI_TARGET" > "$wrap_dir/$_t"
+        chmod +x "$wrap_dir/$_t"
+    done
+
+    for _t in g++ c++; do
+        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-g++ --sysroot=/ "$@"\n' \
+            "$chroot_ld" "$chroot_lp" "$MOCHI_TARGET" > "$wrap_dir/$_t"
+        chmod +x "$wrap_dir/$_t"
+    done
+
+    for _b in ar nm ranlib strip ld objdump objcopy readelf; do
+        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-%s "$@"\n' \
+            "$chroot_ld" "$chroot_lp" "$MOCHI_TARGET" "$_b" > "$wrap_dir/$_b"
+        chmod +x "$wrap_dir/$_b"
+    done
+
+    log "Chroot toolchain wrappers created (cross → $MOCHI_TARGET, sysroot=/)"
 }
 
 _enter_chroot() {
@@ -441,13 +507,14 @@ _enter_chroot() {
     mount --bind "$MOCHI_BUILD/build"  "$MOCHI_ROOTFS/build"  2>/dev/null || \
         mount -t tmpfs tmpfs "$MOCHI_ROOTFS/build"
 
+    _setup_chroot_toolchain
     _mount_chroot
 
     local chroot_env=(
         HOME=/root
         TERM="${TERM:-xterm}"
         PS1='(mochios) \u:\w\$ '
-        PATH=/usr/bin:/usr/sbin:/bin:/sbin
+        PATH=/usr/bin:/usr/sbin:/bin:/sbin:/host-bin
         MOCHI_SOURCES=/sources
         MOCHI_BUILD=/build
         MOCHI_KCONFIG=/sources/mochi.config

@@ -38,6 +38,25 @@ hdr() {
 }
 
 # ---------------------------------------------------------------------------
+# Step 0 – Copy kernel + glibc headers from sysroot into rootfs
+# ---------------------------------------------------------------------------
+populate_headers() {
+    hdr "[0/3] Copying sysroot headers to rootfs"
+
+    local src_inc="$MOCHI_SYSROOT/usr/include"
+    local dst_inc="$MOCHI_ROOTFS/System/usr/include"
+    mkdir -p "$dst_inc"
+
+    [ -d "$src_inc" ] || die "Sysroot has no include dir: $src_inc"
+
+    # Copy kernel and glibc headers verbatim
+    cp -a "$src_inc/" "$dst_inc/" 2>/dev/null || \
+        rsync -a "$src_inc/" "$dst_inc/"
+
+    log "Headers installed → $dst_inc"
+}
+
+# ---------------------------------------------------------------------------
 # Step 1 – Copy glibc from sysroot into rootfs
 # ---------------------------------------------------------------------------
 populate_glibc() {
@@ -164,6 +183,7 @@ log "  Jobs    : $JOBS"
 [ -d "$MOCHI_ROOTFS/System"   ] || die "Rootfs not found – run 'rootfs' step first."
 [ -x "$MOCHI_CROSS/bin/$MOCHI_TARGET-gcc" ] || die "Cross-compiler not found – run 'host' step first."
 
+populate_headers
 populate_glibc
 populate_bash
 populate_coreutils

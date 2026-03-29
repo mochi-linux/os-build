@@ -69,7 +69,6 @@ build_bash() {
     conf_build "$src" "$bld" \
         --prefix=/usr \
         --without-bash-malloc \
-        --with-installed-readline \
         --docdir=/usr/share/doc/bash
 
     make -j"$JOBS"
