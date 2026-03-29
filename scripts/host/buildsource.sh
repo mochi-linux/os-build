@@ -98,7 +98,7 @@ build_binutils() {
     mkdir -p "$bld"
     cd "$bld"
 
-    if [ ! -f "$bld/Makefile" ]; then
+    if [ ! -f "$bld/.configured" ]; then
         log "Configuring binutils (fresh) ..."
 
         "$src/configure" \
@@ -110,8 +110,10 @@ build_binutils() {
             --enable-gprofng=no \
             --enable-new-dtags \
             --enable-default-hash-style=gnu
+
+        touch "$bld/.configured"
     else
-        log "Resuming binutils build (Makefile already present, skipping configure) ..."
+        log "Resuming binutils build (already configured, skipping configure) ..."
     fi
 
     make -j"$JOBS"
@@ -135,7 +137,7 @@ build_gcc_stage1() {
     mkdir -p "$bld"
     cd "$bld"
 
-    if [ ! -f "$bld/Makefile" ]; then
+    if [ ! -f "$bld/.configured" ]; then
         log "Configuring GCC stage 1 (fresh) ..."
 
         "$src/configure" \
@@ -158,8 +160,10 @@ build_gcc_stage1() {
             --disable-libvtv \
             --disable-libstdcxx \
             --enable-languages=c,c++
+
+        touch "$bld/.configured"
     else
-        log "Resuming GCC stage 1 build (Makefile already present, skipping configure) ..."
+        log "Resuming GCC stage 1 build (already configured, skipping configure) ..."
     fi
 
     make -j"$JOBS" all-gcc all-target-libgcc
@@ -184,8 +188,7 @@ build_glibc() {
     mkdir -p "$bld"
     cd "$bld"
 
-    # Resume: skip configure if Makefile already exists from a previous run
-    if [ ! -f "$bld/Makefile" ]; then
+    if [ ! -f "$bld/.configured" ]; then
         log "Configuring glibc (fresh) ..."
 
         # Detect the build machine's triplet
@@ -201,8 +204,10 @@ build_glibc() {
             --disable-nscd \
             --disable-werror \
             libc_cv_slibdir=/usr/lib
+
+        touch "$bld/.configured"
     else
-        log "Resuming glibc build (Makefile already present, skipping configure) ..."
+        log "Resuming glibc build (already configured, skipping configure) ..."
     fi
 
     make -j"$JOBS"
@@ -229,13 +234,13 @@ build_gcc_stage2() {
     mkdir -p "$bld"
     cd "$bld"
 
-    # Resume: skip configure if Makefile already exists from a previous run
-    if [ ! -f "$bld/Makefile" ]; then
+    if [ ! -f "$bld/.configured" ]; then
         log "Configuring GCC stage 2 (fresh) ..."
 
         "$src/configure" \
             --prefix="$MOCHI_CROSS" \
             --with-sysroot="$MOCHI_SYSROOT" \
+            --with-build-sysroot="$MOCHI_SYSROOT" \
             --target="$MOCHI_TARGET" \
             --enable-initfini-array \
             --disable-nls \
@@ -245,9 +250,12 @@ build_gcc_stage2() {
             --enable-default-pie \
             --enable-default-ssp \
             --enable-host-pie \
-            --disable-libstdcxx-pch
+            --disable-libstdcxx-pch \
+            --disable-libsanitizer
+
+        touch "$bld/.configured"
     else
-        log "Resuming GCC stage 2 build (Makefile already present, skipping configure) ..."
+        log "Resuming GCC stage 2 build (already configured, skipping configure) ..."
     fi
 
     make -j"$JOBS"
