@@ -462,13 +462,13 @@ _setup_chroot_toolchain() {
     mkdir -p "$wrap_dir"
 
     for _t in gcc cc; do
-        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-gcc --sysroot=/ "$@"\n' \
+        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-gcc --sysroot=/ -Wl,-rpath,/usr/lib "$@"\n' \
             "$chroot_ld" "$chroot_lp" "$MOCHI_TARGET" > "$wrap_dir/$_t"
         chmod +x "$wrap_dir/$_t"
     done
 
     for _t in g++ c++; do
-        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-g++ --sysroot=/ "$@"\n' \
+        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-g++ --sysroot=/ -Wl,-rpath,/usr/lib "$@"\n' \
             "$chroot_ld" "$chroot_lp" "$MOCHI_TARGET" > "$wrap_dir/$_t"
         chmod +x "$wrap_dir/$_t"
     done
