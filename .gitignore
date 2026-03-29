@@ -1,0 +1,87 @@
+# MochiOS - Git Ignore Rules
+
+# ---------------------------------------------------------------------------
+# Build output (everything under the build root)
+# ---------------------------------------------------------------------------
+/mnt/mochi-build/
+build-*/
+sysroot/
+cross/
+rootfs/
+*.img
+*.iso
+
+# ---------------------------------------------------------------------------
+# Downloaded & extracted sources
+# ---------------------------------------------------------------------------
+sources/
+*.tar.gz
+*.tar.xz
+*.tar.bz2
+*.tar.zst
+*.zip
+
+# ---------------------------------------------------------------------------
+# Kernel build artifacts (if kernel source is inside the tree)
+# ---------------------------------------------------------------------------
+*.o
+*.ko
+*.mod
+*.mod.c
+*.mod.o
+*.symvers
+*.order
+Module.symvers
+modules.builtin
+modules.builtin.modinfo
+vmlinux
+vmlinuz
+System.map
+.config
+.config.old
+config-*
+
+# ---------------------------------------------------------------------------
+# Compiler / toolchain temporaries
+# ---------------------------------------------------------------------------
+*.a
+*.so
+*.so.*
+*.la
+*.lo
+*.lai
+*.Plo
+
+# ---------------------------------------------------------------------------
+# Autotools generated files
+# ---------------------------------------------------------------------------
+Makefile.in
+/configure
+aclocal.m4
+autom4te.cache/
+config.cache
+config.log
+config.status
+libtool
+stamp-h1
+
+# ---------------------------------------------------------------------------
+# Editor & IDE
+# ---------------------------------------------------------------------------
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ---------------------------------------------------------------------------
+# Logs & temporaries
+# ---------------------------------------------------------------------------
+*.log
+*.tmp
+*.bak
+*.orig
+*.rej
+progress.txt
