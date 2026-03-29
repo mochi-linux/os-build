@@ -252,6 +252,9 @@ build_gcc_stage2() {
             --enable-host-pie \
             --disable-libstdcxx-pch \
             --disable-libsanitizer \
+            --disable-libgomp \
+            --disable-libquadmath \
+            --disable-libatomic \
             ac_cv_sys_file_offset_bits=no
 
         touch "$bld/.configured"
