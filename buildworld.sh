@@ -515,6 +515,7 @@ _enter_chroot() {
         TERM="${TERM:-xterm}"
         PS1='(mochios) \u:\w\$ '
         PATH=/usr/bin:/usr/sbin:/bin:/sbin:/host-bin
+        LD_LIBRARY_PATH=/host-lib64:/host-usrlib
         MOCHI_SOURCES=/sources
         MOCHI_BUILD=/build
         MOCHI_KCONFIG=/sources/mochi.config

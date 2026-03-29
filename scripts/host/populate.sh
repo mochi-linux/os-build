@@ -65,9 +65,10 @@ populate_glibc() {
     local rootlib="$MOCHI_ROOTFS/System/usr/lib"
     mkdir -p "$rootlib"
 
-    # Copy all shared libraries and symlinks from the sysroot
-    cp -a "$MOCHI_SYSROOT/usr/lib/"*.so*       "$rootlib/" 2>/dev/null || true
-    cp -a "$MOCHI_SYSROOT/usr/lib/"*.a          "$rootlib/" 2>/dev/null || true
+    # Copy all shared libraries, static archives, and CRT object files
+    cp -a "$MOCHI_SYSROOT/usr/lib/"*.so*  "$rootlib/" 2>/dev/null || true
+    cp -a "$MOCHI_SYSROOT/usr/lib/"*.a    "$rootlib/" 2>/dev/null || true
+    cp -a "$MOCHI_SYSROOT/usr/lib/"*.o    "$rootlib/" 2>/dev/null || true
 
     # glibc also installs to /usr/lib/gconv/, /usr/lib/audit/, etc.
     for subdir in gconv audit; do
