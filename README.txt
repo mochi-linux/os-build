@@ -1,3 +1,5 @@
+--- WARNING: This is incomplete Script under Development ---
+
 MochiOS
 =======
 A custom Linux-based operating system built entirely from source.
