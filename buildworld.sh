@@ -403,6 +403,7 @@ cmd_host() {
     local step="${1:-all}"
     hdr "HOST Toolchain: $step"
     export PATH="$MOCHI_CROSS/bin:$PATH"
+    export BUILD_MODE="${BUILD_MODE:-host}"
     bash "$SCRIPT_DIR/scripts/host/buildsource.sh" "$step"
 }
 
@@ -534,6 +535,7 @@ _enter_chroot() {
         MOCHI_BUILD=/build
         MOCHI_KCONFIG=/sources/mochi.config
         JOBS="$JOBS"
+        BUILD_MODE="${BUILD_MODE:-host}"
     )
 
     chroot "$MOCHI_ROOTFS" \
@@ -614,7 +616,11 @@ cmd_distclean() {
 usage() {
     cat <<EOF
 MochiOS Build System
-Usage: $0 [COMMAND] [STEP]
+Usage: $0 [OPTIONS] [COMMAND] [STEP]
+
+Options:
+  --host           Use host build mode (local compilation, default)
+  --cluster        Use cluster build mode (icecc distributed compilation)
 
 Commands:
   fetch            Download and extract all sources
@@ -637,11 +643,14 @@ Environment variables:
   IMG_SIZE_MB      Disk image size   (default: 4096)
   EFI_SIZE_MB      EFI partition     (default: 512)
   JOBS             Parallel jobs     (default: nproc)
+  BUILD_MODE       Build mode        (default: host, options: host|cluster)
 
 Examples:
-  $0 all                   # Full build
-  $0 host                  # Build entire host toolchain
-  $0 host gcc1             # Build only GCC stage 1
+  $0 all                   # Full build (host mode)
+  $0 --cluster all         # Full build with icecc cluster
+  $0 --host host           # Build entire host toolchain locally
+  $0 --cluster host gcc1   # Build only GCC stage 1 with cluster
+  $0 --cluster chroot kernel  # Build kernel with cluster
   $0 chroot system         # Build only system utilities in chroot
   $0 image                 # Create disk image from existing rootfs
   JOBS=8 $0 host           # Use 8 parallel jobs
@@ -650,6 +659,12 @@ Build pipeline:
   HOST  : headers → binutils → gcc(stage1) → glibc → gcc(stage2)
   CHROOT: bash → coreutils → system → kernel → grub
   IMAGE : GPT (512MiB EFI + ext4 root)
+
+Cluster build mode:
+  --cluster uses icecc for distributed compilation across build nodes.
+  Requires icecc to be installed and configured on the build host.
+  Kernel builds use: make -j\$(nproc) CC="icecc gcc"
+  Configure scripts use: CC="icecc gcc" ./configure ...
 EOF
 }
 
@@ -657,6 +672,27 @@ EOF
 # Main
 # ---------------------------------------------------------------------------
 main() {
+    # Parse options
+    export BUILD_MODE="host"  # default
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --host)
+                BUILD_MODE="host"
+                shift
+                ;;
+            --cluster)
+                BUILD_MODE="cluster"
+                shift
+                ;;
+            --*)
+                die "Unknown option: $1"
+                ;;
+            *)
+                break
+                ;;
+        esac
+    done
+
     local cmd="${1:-all}"
     local step="${2:-all}"
 
@@ -664,6 +700,7 @@ main() {
     log "  Build root : $MOCHI_BUILD"
     log "  Target     : $MOCHI_TARGET"
     log "  Jobs       : $JOBS"
+    log "  Build mode : $BUILD_MODE"
 
     case "$cmd" in
         fetch)        cmd_fetch ;;

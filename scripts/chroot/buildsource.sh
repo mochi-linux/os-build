@@ -15,6 +15,7 @@ set -euo pipefail
 : "${MOCHI_SOURCES:=/sources}"
 : "${MOCHI_BUILD:=/build}"
 : "${JOBS:=$(nproc)}"
+: "${BUILD_MODE:=host}"  # host or cluster
 
 # Package versions (mirror SOURCES.txt)
 LINUX_VER="7.0-rc5"
@@ -34,6 +35,33 @@ PERL_VER="5.42.1"
 AUTOCONF_VER="2.73"
 
 BOOT_DIR="/System/Library/Kernel"
+
+# ---------------------------------------------------------------------------
+# Build Mode Configuration
+# ---------------------------------------------------------------------------
+setup_build_mode() {
+    case "$BUILD_MODE" in
+        host)
+            log "Build mode: HOST (local build)"
+            MAKE_CC=""
+            CONFIGURE_CC=""
+            KERNEL_CC=""
+            ;;
+        cluster)
+            if ! command -v icecc >/dev/null 2>&1; then
+                die "icecc not found. Install icecc for cluster builds."
+            fi
+            log "Build mode: CLUSTER (icecc distributed build)"
+            log "  icecc version: $(icecc --version 2>&1 | head -n1)"
+            MAKE_CC="CC=\"icecc gcc\""
+            CONFIGURE_CC="CC=\"icecc gcc\""
+            KERNEL_CC="CC=\"icecc gcc\""
+            ;;
+        *)
+            die "Unknown BUILD_MODE: $BUILD_MODE (use 'host' or 'cluster')"
+            ;;
+    esac
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -57,7 +85,7 @@ conf_build() {
     require_src "$src"
     rm -rf "$bld" && mkdir -p "$bld"
     cd "$bld"
-    "$src/configure" "$@"
+    eval "$CONFIGURE_CC" "$src/configure" "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -73,7 +101,7 @@ build_bash() {
         --without-bash-malloc \
         --docdir=/usr/share/doc/bash
 
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     ln -sfn bash /usr/bin/sh
@@ -95,7 +123,7 @@ build_coreutils() {
         --enable-no-install-program=kill,uptime \
         --docdir=/usr/share/doc/coreutils
 
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     log "Coreutils installed → /usr/bin"
@@ -125,7 +153,7 @@ build_system() {
         --without-cxx-binding \
         --enable-pc-files \
         --with-pkg-config-libdir=/usr/lib/pkgconfig
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
     for hdr in curses.h ncurses.h term.h termcap.h; do
         if [ -e "/usr/include/ncursesw/$hdr" ] && [ ! -e "/usr/include/$hdr" ]; then
@@ -145,8 +173,8 @@ build_system() {
     require_src "$src"
     rm -rf "$bld" && mkdir -p "$bld"
     cd "$bld"
-    "$src/configure" --prefix=/usr
-    make -j"$JOBS"
+    eval "$CONFIGURE_CC" "$src/configure" --prefix=/usr
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- XZ Utils ---
@@ -157,7 +185,7 @@ build_system() {
         --prefix=/usr \
         --disable-static \
         --docdir=/usr/share/doc/xz
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- Gzip ---
@@ -166,7 +194,7 @@ build_system() {
     bld="$MOCHI_BUILD/build-gzip"
     conf_build "$src" "$bld" \
         --prefix=/usr
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- Tar ---
@@ -177,7 +205,7 @@ build_system() {
     conf_build "$src" "$bld" \
         --prefix=/usr \
         --bindir=/usr/bin
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- Findutils ---
@@ -188,7 +216,7 @@ build_system() {
         --prefix=/usr \
         --localstatedir=/var/lib/locate \
         --docdir=/usr/share/doc/findutils
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- Util-linux ---
@@ -222,7 +250,7 @@ build_system() {
         --without-python \
         ADJTIME_PATH=/var/lib/hwclock/adjtime \
         --docdir=/usr/share/doc/util-linux
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- Inetutils ---
@@ -242,7 +270,7 @@ build_system() {
         --disable-telnet \
         --disable-telnetd \
         --disable-servers
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- Perl ---
@@ -268,7 +296,7 @@ build_system() {
         -Dman3dir=/usr/share/man/man3 \
         -Duseshrplib \
         -Dusethreads
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- Autoconf ---
@@ -277,7 +305,7 @@ build_system() {
     bld="$MOCHI_BUILD/build-autoconf"
     conf_build "$src" "$bld" \
         --prefix=/usr
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     # --- Kmod ---
@@ -296,7 +324,7 @@ build_system() {
         --with-xz \
         --with-zlib \
         --disable-manpages
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
     for prog in depmod insmod modinfo modprobe rmmod; do
         ln -sfn ../bin/kmod "/usr/sbin/$prog" 2>/dev/null || true
@@ -311,7 +339,7 @@ build_system() {
         --prefix=/usr \
         --without-guile \
         --docdir=/usr/share/doc/make
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     log "System utilities installed"
@@ -342,7 +370,7 @@ build_kernel() {
         make olddefconfig
     fi
 
-    make -j"$JOBS" bzImage modules
+    eval make -j"$JOBS" $KERNEL_CC bzImage modules
 
     # Install kernel modules
     make modules_install INSTALL_MOD_PATH=/
@@ -428,6 +456,8 @@ EOF
 }
 
 main() {
+    setup_build_mode
+
     log "MochiOS Chroot Build"
     log "  Sources : $MOCHI_SOURCES"
     log "  Build   : $MOCHI_BUILD"

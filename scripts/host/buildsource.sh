@@ -13,6 +13,7 @@ set -euo pipefail
 : "${MOCHI_CROSS:=$MOCHI_BUILD/cross}"
 : "${MOCHI_TARGET:=x86_64-mochios-linux-gnu}"
 : "${JOBS:=$(nproc)}"
+: "${BUILD_MODE:=host}"  # host or cluster
 
 # Package versions (mirror SOURCES.txt)
 LINUX_VER="7.0-rc5"
@@ -24,6 +25,31 @@ MPC_VER="1.3.1"
 ISL_VER="0.27"
 
 export PATH="$MOCHI_CROSS/bin:$PATH"
+
+# ---------------------------------------------------------------------------
+# Build Mode Configuration
+# ---------------------------------------------------------------------------
+setup_build_mode() {
+    case "$BUILD_MODE" in
+        host)
+            log "Build mode: HOST (local build)"
+            MAKE_CC=""
+            CONFIGURE_CC=""
+            ;;
+        cluster)
+            if ! command -v icecc >/dev/null 2>&1; then
+                die "icecc not found. Install icecc for cluster builds."
+            fi
+            log "Build mode: CLUSTER (icecc distributed build)"
+            log "  icecc version: $(icecc --version 2>&1 | head -n1)"
+            MAKE_CC="CC=\"icecc gcc\""
+            CONFIGURE_CC="CC=\"icecc gcc\""
+            ;;
+        *)
+            die "Unknown BUILD_MODE: $BUILD_MODE (use 'host' or 'cluster')"
+            ;;
+    esac
+}
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -101,7 +127,7 @@ build_binutils() {
     if [ ! -f "$bld/.configured" ]; then
         log "Configuring binutils (fresh) ..."
 
-        "$src/configure" \
+        eval "$CONFIGURE_CC" "$src/configure" \
             --prefix="$MOCHI_CROSS" \
             --with-sysroot="$MOCHI_SYSROOT" \
             --target="$MOCHI_TARGET" \
@@ -116,7 +142,7 @@ build_binutils() {
         log "Resuming binutils build (already configured, skipping configure) ..."
     fi
 
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     log "Binutils installed → $MOCHI_CROSS"
@@ -140,7 +166,7 @@ build_gcc_stage1() {
     if [ ! -f "$bld/.configured" ]; then
         log "Configuring GCC stage 1 (fresh) ..."
 
-        "$src/configure" \
+        eval "$CONFIGURE_CC" "$src/configure" \
             --prefix="$MOCHI_CROSS" \
             --with-sysroot="$MOCHI_SYSROOT" \
             --target="$MOCHI_TARGET" \
@@ -166,7 +192,7 @@ build_gcc_stage1() {
         log "Resuming GCC stage 1 build (already configured, skipping configure) ..."
     fi
 
-    make -j"$JOBS" all-gcc all-target-libgcc
+    eval make -j"$JOBS" $MAKE_CC all-gcc all-target-libgcc
     make install-gcc install-target-libgcc
 
     log "GCC Stage 1 installed → $MOCHI_CROSS"
@@ -195,7 +221,7 @@ build_glibc() {
         local build_triplet
         build_triplet="$(gcc -dumpmachine 2>/dev/null || echo x86_64-pc-linux-gnu)"
 
-        "$src/configure" \
+        eval "$CONFIGURE_CC" "$src/configure" \
             --prefix=/usr \
             --host="$MOCHI_TARGET" \
             --build="$build_triplet" \
@@ -210,7 +236,7 @@ build_glibc() {
         log "Resuming glibc build (already configured, skipping configure) ..."
     fi
 
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make DESTDIR="$MOCHI_SYSROOT" install
 
     # Fix ldd hardcoded /usr prefix
@@ -237,7 +263,7 @@ build_gcc_stage2() {
     if [ ! -f "$bld/.configured" ]; then
         log "Configuring GCC stage 2 (fresh) ..."
 
-        "$src/configure" \
+        eval "$CONFIGURE_CC" "$src/configure" \
             --prefix="$MOCHI_CROSS" \
             --with-sysroot="$MOCHI_SYSROOT" \
             --with-build-sysroot="$MOCHI_SYSROOT" \
@@ -262,7 +288,7 @@ build_gcc_stage2() {
         log "Resuming GCC stage 2 build (already configured, skipping configure) ..."
     fi
 
-    make -j"$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
     make install
 
     log "GCC Stage 2 installed → $MOCHI_CROSS"
@@ -294,6 +320,8 @@ EOF
 }
 
 main() {
+    setup_build_mode
+
     log "MochiOS Host Toolchain Build"
     log "  Target  : $MOCHI_TARGET"
     log "  Cross   : $MOCHI_CROSS"
