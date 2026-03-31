@@ -18,7 +18,7 @@ set -euo pipefail
 : "${MOCHI_CROSS:=$MOCHI_BUILD/cross}"
 : "${MOCHI_TARGET:=x86_64-mochios-linux-gnu}"
 : "${MOCHI_IMAGE:=$MOCHI_BUILD/mochios.img}"
-: "${JOBS:=$(nproc)}"
+: "${JOBS:=$(($(nproc)*2))}"
 : "${ARIA2_CONNECTIONS:=16}"
 : "${ARIA2_SPLITS:=16}"
 : "${ARIA2_MIN_SPLIT:=1M}"
