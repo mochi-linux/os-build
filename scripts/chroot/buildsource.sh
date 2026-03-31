@@ -30,6 +30,8 @@ XZ_VER="5.8.2"
 GZIP_VER="1.14"
 TAR_VER="1.35"
 KMOD_VER="34"
+PERL_VER="5.42.1"
+AUTOCONF_VER="2.73"
 
 BOOT_DIR="/System/Library/Kernel"
 
@@ -102,7 +104,7 @@ build_coreutils() {
 # ---------------------------------------------------------------------------
 # Step 3 – System Utilities
 #   ncurses → zlib → xz → gzip → tar → findutils →
-#   util-linux → inetutils → kmod → make
+#   util-linux → inetutils → perl → autoconf → kmod → make
 # ---------------------------------------------------------------------------
 build_system() {
     hdr "[3/5] System Utilities"
@@ -191,6 +193,14 @@ build_system() {
 
     # --- Util-linux ---
     log "  -> Util-linux $UTIL_LINUX_VER"
+    
+    # Create root user/group if they don't exist (required for mount utility)
+    getent group root >/dev/null 2>&1 || groupadd -g 0 root
+    getent passwd root >/dev/null 2>&1 || useradd -u 0 -g 0 -d /root -s /bin/bash root
+    
+    # Create tty group if it doesn't exist (required for wall utility)
+    getent group tty >/dev/null 2>&1 || groupadd -g 5 tty
+    
     src="$MOCHI_SOURCES/util-linux-$UTIL_LINUX_VER"
     bld="$MOCHI_BUILD/build-util-linux"
     conf_build "$src" "$bld" \
@@ -208,6 +218,7 @@ build_system() {
         --disable-pylibmount \
         --disable-static \
         --disable-liblastlog2 \
+        --disable-lsfd \
         --without-python \
         ADJTIME_PATH=/var/lib/hwclock/adjtime \
         --docdir=/usr/share/doc/util-linux
@@ -228,7 +239,44 @@ build_system() {
         --disable-rexec \
         --disable-rlogin \
         --disable-rsh \
+        --disable-telnet \
+        --disable-telnetd \
         --disable-servers
+    make -j"$JOBS"
+    make install
+
+    # --- Perl ---
+    log "  -> Perl $PERL_VER"
+    src="$MOCHI_SOURCES/perl-$PERL_VER"
+    require_src "$src"
+    cd "$src"
+    
+    # Clean any previous build
+    [ -f Makefile ] && make distclean 2>/dev/null || true
+    
+    # Perl requires in-tree build
+    ./Configure -des \
+        -Dprefix=/usr \
+        -Dvendorprefix=/usr \
+        -Dprivlib=/usr/lib/perl5/core_perl \
+        -Darchlib=/usr/lib/perl5/core_perl \
+        -Dsitelib=/usr/lib/perl5/site_perl \
+        -Dsitearch=/usr/lib/perl5/site_perl \
+        -Dvendorlib=/usr/lib/perl5/vendor_perl \
+        -Dvendorarch=/usr/lib/perl5/vendor_perl \
+        -Dman1dir=/usr/share/man/man1 \
+        -Dman3dir=/usr/share/man/man3 \
+        -Duseshrplib \
+        -Dusethreads
+    make -j"$JOBS"
+    make install
+
+    # --- Autoconf ---
+    log "  -> Autoconf $AUTOCONF_VER"
+    src="$MOCHI_SOURCES/autoconf-$AUTOCONF_VER"
+    bld="$MOCHI_BUILD/build-autoconf"
+    conf_build "$src" "$bld" \
+        --prefix=/usr
     make -j"$JOBS"
     make install
 
@@ -236,6 +284,11 @@ build_system() {
     log "  -> Kmod $KMOD_VER"
     src="$MOCHI_SOURCES/kmod-$KMOD_VER"
     bld="$MOCHI_BUILD/build-kmod"
+    
+    # Regenerate autotools files (requires autoconf built above)
+    cd "$src"
+    autoreconf -fiv
+    
     conf_build "$src" "$bld" \
         --prefix=/usr \
         --sysconfdir=/etc \

@@ -56,6 +56,8 @@ SOURCES_LIST=(
     "https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.xz"
     "https://mirror.cyberbits.asia/gnu/mpc/mpc-1.3.1.tar.gz"
     "https://libisl.sourceforge.io/isl-0.27.tar.xz"
+    "https://mirror.cyberbits.asia/gnu/autoconf/autoconf-latest.tar.xz"
+    "https://www.cpan.org/src/5.0/perl-5.42.1.tar.gz"
 )
 
 # ---------------------------------------------------------------------------
