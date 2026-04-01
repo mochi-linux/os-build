@@ -10,7 +10,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${DIST_DIR:=$SCRIPT_DIR/dist}"
 : "${DIST_NAME:=mochios-rootfs}"
 : "${DIST_VERSION:=$(date +%Y%m%d)}"
-: "${IMAGE_SIZE:=4G}"
+: "${IMAGE_SIZE:=1G}"
 : "${IMAGE_NAME:=mochios-${DIST_VERSION}.img}"
 
 log() { echo "[DIST] $(date +%H:%M:%S)  $*"; }
@@ -86,6 +86,9 @@ create_dist_tarball() {
         --exclude='host-lib64'
         --exclude='host-usrlib'
         
+        # Init source (already compiled to /sbin/init)
+        --exclude='init'
+        
         # Temporary directories (will be empty in tarball)
         --exclude='dev/*'
         --exclude='proc/*'
@@ -100,6 +103,9 @@ create_dist_tarball() {
         --exclude='var/cache/*'
         --exclude='var/log/*'
         --exclude='var/tmp/*'
+        
+        # Lost+found
+        --exclude='lost+found'
     )
     
     log "Creating distribution tarball..."
@@ -267,12 +273,28 @@ create_bootable_image() {
     log "Mounting partitions..."
     mkdir -p "$mount_point"
     mount "$root_part" "$mount_point"
+    
+    # Copy rootfs first (excluding boot directory and build artifacts)
+    log "Copying rootfs to image..."
+    rsync -aHAX --info=progress2 \
+        --exclude='/boot' \
+        --exclude='/build' \
+        --exclude='/sources' \
+        --exclude='/cross' \
+        --exclude='/host-bin' \
+        --exclude='/host-lib64' \
+        --exclude='/host-usrlib' \
+        --exclude='/init' \
+        --exclude='/scripts' \
+        --exclude='/.buildstate' \
+        --exclude='/lost+found' \
+        "$MOCHI_ROOTFS/" "$mount_point/"
+    
+    # Handle boot directory specially
+    log "Setting up boot directory..."
+    rm -rf "$mount_point/boot"  # Remove any existing boot symlink/dir
     mkdir -p "$mount_point/boot/efi"
     mount "$efi_part" "$mount_point/boot/efi"
-    
-    # Copy rootfs
-    log "Copying rootfs to image..."
-    rsync -aHAX --info=progress2 "$MOCHI_ROOTFS/" "$mount_point/"
     
     # Update fstab with UUIDs
     log "Updating fstab with partition UUIDs..."
@@ -379,6 +401,49 @@ EOF
     log "  qemu-system-x86_64 -enable-kvm -m 2G -drive file=$image_path,format=raw -bios /usr/share/ovmf/OVMF.fd"
 }
 
+create_squashfs() {
+    hdr "Creating SquashFS Image"
+    
+    local squashfs_path="$DIST_DIR/$DIST_NAME-$DIST_VERSION.squashfs"
+    
+    log "SquashFS: $squashfs_path"
+    
+    # Copy system config first
+    copy_system_config
+    
+    # Create SquashFS with maximum compression
+    log "Creating compressed SquashFS image..."
+    log "  Excluding build artifacts and temporary files"
+    
+    mksquashfs "$MOCHI_ROOTFS" "$squashfs_path" \
+        -comp xz \
+        -Xbcj x86 \
+        -b 1M \
+        -noappend \
+        -e build sources cross host-bin host-lib64 host-usrlib init scripts .buildstate lost+found \
+        -e dev proc sys run tmp \
+        -processors $(nproc)
+    
+    # Get final size
+    local sqfs_size=$(du -h "$squashfs_path" | cut -f1)
+    
+    # Create checksum
+    log "Generating checksum..."
+    (cd "$DIST_DIR" && sha256sum "$DIST_NAME-$DIST_VERSION.squashfs" > "$DIST_NAME-$DIST_VERSION.squashfs.sha256")
+    
+    hdr "SquashFS Image Created Successfully"
+    log ""
+    log "SquashFS: $squashfs_path"
+    log "Size: $sqfs_size"
+    log "Checksum: $DIST_DIR/$DIST_NAME-$DIST_VERSION.squashfs.sha256"
+    log ""
+    log "To mount:"
+    log "  sudo mount -t squashfs -o loop $squashfs_path /mnt"
+    log ""
+    log "To use as root filesystem:"
+    log "  Add 'root=/dev/loop0' and use as initramfs overlay"
+}
+
 show_usage() {
     cat << EOF
 Usage: $0 [COMMAND] [OPTIONS]
@@ -388,19 +453,21 @@ Create distribution artifacts from the built MochiOS rootfs.
 Commands:
   tarball           Create compressed rootfs tarball (default)
   image             Create bootable disk image (.img)
-  all               Create both tarball and image
+  squashfs          Create compressed SquashFS image
+  all               Create tarball, image, and squashfs
 
 Options:
   --name NAME       Distribution name (default: mochios-rootfs)
   --version VER     Version string (default: YYYYMMDD)
   --output DIR      Output directory (default: ./dist)
-  --size SIZE       Image size for disk image (default: 4G)
+  --size SIZE       Image size for disk image (default: 1G)
   --manifest        Create manifest file (default: yes)
   --help            Show this help message
 
 Examples:
   sudo ./dist.sh tarball
   sudo ./dist.sh image
+  sudo ./dist.sh squashfs
   sudo ./dist.sh all
   sudo ./dist.sh image --size 8G --version 1.0.0
   sudo ./dist.sh tarball --output /tmp/dist
@@ -409,7 +476,7 @@ Environment Variables:
   MOCHI_BUILD       Build directory (default: ./buildfs)
   MOCHI_ROOTFS      Rootfs directory (default: \$MOCHI_BUILD/rootfs)
   DIST_DIR          Output directory (default: ./dist)
-  IMAGE_SIZE        Disk image size (default: 4G)
+  IMAGE_SIZE        Disk image size (default: 1G)
 
 EOF
 }
@@ -481,14 +548,20 @@ main() {
             hdr "Image Distribution Complete"
             log "Ready to boot!"
             ;;
+        squashfs)
+            create_squashfs
+            hdr "SquashFS Distribution Complete"
+            log "Ready for deployment!"
+            ;;
         all)
             create_dist_tarball
             if [ "$create_manifest_file" = true ]; then
                 create_manifest
             fi
             create_bootable_image
+            create_squashfs
             hdr "All Distributions Complete"
-            log "Tarball and image ready!"
+            log "Tarball, image, and squashfs ready!"
             ;;
         *)
             echo "Unknown command: $command"

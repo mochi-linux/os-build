@@ -23,6 +23,15 @@ umount_all() {
     
     log "Rootfs path: $MOCHI_ROOTFS"
     
+    # Unmount image mounts first
+    local image_mount="$MOCHI_BUILD/image-mount"
+    if [ -d "$image_mount" ]; then
+        log "Unmounting image mounts..."
+        umount -l "$image_mount/boot/efi" 2>/dev/null || true
+        umount -l "$image_mount" 2>/dev/null || true
+        sleep 1
+    fi
+    
     # First pass: unmount all known mount points with lazy unmount
     log "Unmounting chroot system mounts..."
     umount -l "$MOCHI_ROOTFS/dev/pts"     2>/dev/null || true
@@ -70,6 +79,15 @@ umount_all() {
         umount -l -R "$MOCHI_ROOTFS" 2>/dev/null || true
         sleep 1
     fi
+    
+    # Detach all loop devices
+    log "Detaching loop devices..."
+    for loop in /dev/loop*; do
+        if [ -b "$loop" ] && losetup "$loop" 2>/dev/null | grep -q "$MOCHI_BUILD"; then
+            log "  Detaching: $loop"
+            losetup -d "$loop" 2>/dev/null || true
+        fi
+    done
     
     log "All bind mounts unmounted successfully"
     log ""
