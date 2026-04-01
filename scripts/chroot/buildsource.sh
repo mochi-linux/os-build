@@ -81,6 +81,30 @@ require_src() {
     [ -d "$1" ] || die "Source directory not found: $1"
 }
 
+# Build state tracking
+STATE_DIR="$MOCHI_BUILD/.buildstate"
+mkdir -p "$STATE_DIR"
+
+mark_built() {
+    local component="$1"
+    touch "$STATE_DIR/chroot-${component}.done"
+    log "✓ $component build completed"
+}
+
+is_built() {
+    local component="$1"
+    [ -f "$STATE_DIR/chroot-${component}.done" ]
+}
+
+skip_if_built() {
+    local component="$1"
+    if is_built "$component"; then
+        log "⊳ Skipping $component (already built)"
+        return 0
+    fi
+    return 1
+}
+
 conf_build() {
     local src="$1"; shift
     local bld="$1"; shift
@@ -94,6 +118,7 @@ conf_build() {
 # Step 1 – Bash
 # ---------------------------------------------------------------------------
 build_bash() {
+    skip_if_built "bash" && return 0
     hdr "[1/5] Bash $BASH_VER"
     local src="$MOCHI_SOURCES/bash-$BASH_VER"
     local bld="$MOCHI_BUILD/build-bash"
@@ -109,12 +134,14 @@ build_bash() {
     ln -sfn bash /usr/bin/sh
 
     log "Bash installed → /usr/bin/bash, /usr/bin/sh"
+    mark_built "bash"
 }
 
 # ---------------------------------------------------------------------------
 # Step 2 – Coreutils
 # ---------------------------------------------------------------------------
 build_coreutils() {
+    skip_if_built "coreutils" && return 0
     hdr "[2/5] Coreutils $COREUTILS_VER"
     local src="$MOCHI_SOURCES/coreutils-$COREUTILS_VER"
     local bld="$MOCHI_BUILD/build-coreutils"
@@ -129,6 +156,7 @@ build_coreutils() {
     make install
 
     log "Coreutils installed → /usr/bin"
+    mark_built "coreutils"
 }
 
 # ---------------------------------------------------------------------------
@@ -140,6 +168,7 @@ build_system() {
     hdr "[3/5] System Utilities"
 
     # --- Ncurses ---
+    if ! skip_if_built "ncurses"; then
     log "  -> Ncurses $NCURSES_VER"
     local src bld
     src="$MOCHI_SOURCES/ncurses-$NCURSES_VER"
@@ -167,8 +196,11 @@ build_system() {
         ln -sfn "lib${lib}w.so" "/usr/lib/lib${lib}.so" 2>/dev/null || true
     done
     ln -sfn libncursesw.so /usr/lib/libcurses.so 2>/dev/null || true
+    mark_built "ncurses"
+    fi
 
     # --- Zlib ---
+    if ! skip_if_built "zlib"; then
     log "  -> Zlib $ZLIB_VER"
     src="$MOCHI_SOURCES/zlib-$ZLIB_VER"
     bld="$MOCHI_BUILD/build-zlib"
@@ -178,8 +210,11 @@ build_system() {
     eval "$CONFIGURE_CC" "$src/configure" --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "zlib"
+    fi
 
     # --- XZ Utils ---
+    if ! skip_if_built "xz"; then
     log "  -> XZ Utils $XZ_VER"
     src="$MOCHI_SOURCES/xz-$XZ_VER"
     bld="$MOCHI_BUILD/build-xz"
@@ -189,28 +224,36 @@ build_system() {
         --docdir=/usr/share/doc/xz
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "xz"
+    fi
 
     # --- Gzip ---
+    if ! skip_if_built "gzip"; then
     log "  -> Gzip $GZIP_VER"
     src="$MOCHI_SOURCES/gzip-$GZIP_VER"
     bld="$MOCHI_BUILD/build-gzip"
-    conf_build "$src" "$bld" \
-        --prefix=/usr
+    conf_build "$src" "$bld" --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "gzip"
+    fi
 
     # --- Tar ---
+    if ! skip_if_built "tar"; then
     log "  -> Tar $TAR_VER"
     src="$MOCHI_SOURCES/tar-$TAR_VER"
     bld="$MOCHI_BUILD/build-tar"
     FORCE_UNSAFE_CONFIGURE=1 \
     conf_build "$src" "$bld" \
         --prefix=/usr \
-        --bindir=/usr/bin
+        --without-python
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "tar"
+    fi
 
     # --- Findutils ---
+    if ! skip_if_built "findutils"; then
     log "  -> Findutils $FINDUTILS_VER"
     src="$MOCHI_SOURCES/findutils-$FINDUTILS_VER"
     bld="$MOCHI_BUILD/build-findutils"
@@ -220,8 +263,11 @@ build_system() {
         --docdir=/usr/share/doc/findutils
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "findutils"
+    fi
 
     # --- Util-linux ---
+    if ! skip_if_built "util-linux"; then
     log "  -> Util-linux $UTIL_LINUX_VER"
     
     # Create root user/group if they don't exist (required for mount utility)
@@ -254,8 +300,11 @@ build_system() {
         --docdir=/usr/share/doc/util-linux
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "util-linux"
+    fi
 
     # --- Inetutils ---
+    if ! skip_if_built "inetutils"; then
     log "  -> Inetutils $INETUTILS_VER"
     src="$MOCHI_SOURCES/inetutils-$INETUTILS_VER"
     bld="$MOCHI_BUILD/build-inetutils"
@@ -274,8 +323,11 @@ build_system() {
         --disable-servers
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "inetutils"
+    fi
 
     # --- Perl ---
+    if ! skip_if_built "perl"; then
     log "  -> Perl $PERL_VER"
     src="$MOCHI_SOURCES/perl-$PERL_VER"
     require_src "$src"
@@ -300,8 +352,11 @@ build_system() {
         -Dusethreads
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "perl"
+    fi
 
     # --- Autoconf ---
+    if ! skip_if_built "autoconf"; then
     log "  -> Autoconf $AUTOCONF_VER"
     src="$MOCHI_SOURCES/autoconf-$AUTOCONF_VER"
     bld="$MOCHI_BUILD/build-autoconf"
@@ -309,8 +364,11 @@ build_system() {
         --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "autoconf"
+    fi
 
     # --- Automake ---
+    if ! skip_if_built "automake"; then
     log "  -> Automake $AUTOMAKE_VER"
     src="$MOCHI_SOURCES/automake-$AUTOMAKE_VER"
     bld="$MOCHI_BUILD/build-automake"
@@ -318,8 +376,11 @@ build_system() {
         --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "automake"
+    fi
 
     # --- Libtool ---
+    if ! skip_if_built "libtool"; then
     log "  -> Libtool $LIBTOOL_VER"
     src="$MOCHI_SOURCES/libtool-$LIBTOOL_VER"
     bld="$MOCHI_BUILD/build-libtool"
@@ -327,15 +388,14 @@ build_system() {
         --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "libtool"
+    fi
 
     # --- Kmod ---
+    if ! skip_if_built "kmod"; then
     log "  -> Kmod $KMOD_VER"
     src="$MOCHI_SOURCES/kmod-$KMOD_VER"
     bld="$MOCHI_BUILD/build-kmod"
-    
-    # Regenerate autotools files (requires autoconf built above)
-    cd "$src"
-    autoreconf -fiv
     
     conf_build "$src" "$bld" \
         --prefix=/usr \
@@ -350,8 +410,11 @@ build_system() {
         ln -sfn ../bin/kmod "/usr/sbin/$prog" 2>/dev/null || true
     done
     ln -sfn kmod /usr/bin/lsmod 2>/dev/null || true
+    mark_built "kmod"
+    fi
 
     # --- Make ---
+    if ! skip_if_built "make"; then
     log "  -> Make $MAKE_VER"
     src="$MOCHI_SOURCES/make-$MAKE_VER"
     bld="$MOCHI_BUILD/build-make"
@@ -361,6 +424,8 @@ build_system() {
         --docdir=/usr/share/doc/make
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "make"
+    fi
 
     log "System utilities installed"
 }
@@ -369,6 +434,7 @@ build_system() {
 # Step 4 – Linux Kernel
 # ---------------------------------------------------------------------------
 build_kernel() {
+    skip_if_built "kernel" && return 0
     hdr "[4/5] Linux Kernel $LINUX_VER"
     local src="$MOCHI_SOURCES/linux-$LINUX_VER"
     require_src "$src"
@@ -403,12 +469,14 @@ build_kernel() {
 
     log "Kernel installed → $BOOT_DIR/vmlinuz"
     log "Modules installed → /lib/modules"
+    mark_built "kernel"
 }
 
 # ---------------------------------------------------------------------------
 # Step 5 – GRUB
 # ---------------------------------------------------------------------------
 build_grub() {
+    skip_if_built "grub" && return 0
     hdr "[5/5] GRUB Bootloader"
 
     mkdir -p "$BOOT_DIR/grub"
