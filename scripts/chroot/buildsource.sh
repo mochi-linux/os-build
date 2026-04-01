@@ -18,7 +18,7 @@ set -euo pipefail
 : "${BUILD_MODE:=host}"  # host or cluster
 
 # Package versions (mirror SOURCES.txt)
-LINUX_VER="7.0-rc6"
+LINUX_VER="7.0-rc5"
 BASH_VER="5.3"
 COREUTILS_VER="9.10"
 UTIL_LINUX_VER="2.40"

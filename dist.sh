@@ -277,7 +277,7 @@ create_bootable_image() {
     # Copy rootfs first (excluding boot directory and build artifacts)
     log "Copying rootfs to image..."
     rsync -aHAX --info=progress2 \
-        --exclude='/boot' \
+        --exclude='/System/Library/Kernel/Boot' \
         --exclude='/build' \
         --exclude='/sources' \
         --exclude='/cross' \
@@ -292,9 +292,9 @@ create_bootable_image() {
     
     # Handle boot directory specially
     log "Setting up boot directory..."
-    rm -rf "$mount_point/boot"  # Remove any existing boot symlink/dir
-    mkdir -p "$mount_point/boot/efi"
-    mount "$efi_part" "$mount_point/boot/efi"
+    rm -rf "$mount_point/System/Library/Kernel/Boot"  # Remove any existing boot symlink/dir
+    mkdir -p "$mount_point/System/Library/Kernel/Boot/UEFI"
+    mount "$efi_part" "$mount_point/System/Library/Kernel/Boot/UEFI"
     
     # Update fstab with UUIDs
     log "Updating fstab with partition UUIDs..."
@@ -307,7 +307,7 @@ create_bootable_image() {
 UUID=$root_uuid        /               ext4    defaults        1       1
 
 # EFI System Partition
-UUID=$efi_uuid         /boot/efi       vfat    defaults        0       2
+UUID=$efi_uuid         /System/Library/Kernel/Boot/UEFI       vfat    defaults        0       2
 
 # Temporary filesystems
 tmpfs                  /tmp            tmpfs   defaults,nodev,nosuid   0       0
@@ -318,13 +318,13 @@ EOF
     log "Installing GRUB bootloader..."
     
     # Create GRUB directory
-    mkdir -p "$mount_point/boot/efi/EFI/BOOT"
+    mkdir -p "$mount_point/System/Library/Kernel/Boot/UEFI/EFI/BOOT"
     mkdir -p "$mount_point/System/Library/Kernel/grub"
     
     # Install GRUB to EFI partition
     if command -v grub-install >/dev/null 2>&1; then
         grub-install --target=x86_64-efi \
-                     --efi-directory="$mount_point/boot/efi" \
+                     --efi-directory="$mount_point/System/Library/Kernel/Boot/UEFI" \
                      --boot-directory="$mount_point/System/Library/Kernel" \
                      --removable \
                      --no-nvram \
@@ -344,23 +344,12 @@ insmod fat
 insmod ext2
 
 # Load video drivers
-insmod all_video
-insmod gfxterm
-terminal_output gfxterm
+terminal_output console
+terminal_input console
 
 menuentry "MochiOS" {
     search --no-floppy --set=root --fs-uuid $root_uuid
-    linux  /System/Library/Kernel/vmlinuz root=UUID=$root_uuid rw quiet splash
-}
-
-menuentry "MochiOS (Recovery Mode)" {
-    search --no-floppy --set=root --fs-uuid $root_uuid
-    linux  /System/Library/Kernel/vmlinuz root=UUID=$root_uuid rw single init=/bin/bash
-}
-
-menuentry "MochiOS (Verbose Boot)" {
-    search --no-floppy --set=root --fs-uuid $root_uuid
-    linux  /System/Library/Kernel/vmlinuz root=UUID=$root_uuid rw debug
+    linux  /System/Library/Kernel/vmlinuz root=UUID=$root_uuid rw
 }
 EOF
     
@@ -369,7 +358,7 @@ EOF
     sync
     
     log "Unmounting partitions..."
-    umount "$mount_point/boot/efi"
+    umount "$mount_point/System/Library/Kernel/Boot/UEFI"
     umount "$mount_point"
     
     # Detach loop device

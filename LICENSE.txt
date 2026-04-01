@@ -35,7 +35,7 @@ NOTICE file inside the respective source archive listed in SOURCES.txt.
 
   COMPONENT             VERSION     LICENSE
   ──────────────────────────────────────────────────────────────────────────
-  Linux Kernel          7.0-rc6     GNU General Public License v2 only
+  Linux Kernel          7.0-rc5     GNU General Public License v2 only
   GNU C Library (glibc) 2.43        GNU Lesser General Public License v2.1+
   GCC                   15.2.0      GNU General Public License v3+ (runtime:
                                     GCC Runtime Library Exception)

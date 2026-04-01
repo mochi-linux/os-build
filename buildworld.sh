@@ -54,7 +54,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source URLs  (from SOURCES.txt)
 # ---------------------------------------------------------------------------
 SOURCES_LIST=(
-    "https://git.kernel.org/torvalds/t/linux-7.0-rc6.tar.gz"
+    "https://git.kernel.org/torvalds/t/linux-7.0-rc5.tar.gz"
     "https://mirror.cyberbits.asia/gnu/glibc/glibc-2.43.tar.xz"
     "https://mirror.cyberbits.asia/gnu/gcc/gcc-15.2.0/gcc-15.2.0.tar.xz"
     "https://mirror.cyberbits.asia/gnu/binutils/binutils-2.46.0.tar.xz"
@@ -369,10 +369,11 @@ cmd_rootfs() {
         "$MOCHI_ROOTFS/System/usr/bin" \
         "$MOCHI_ROOTFS/System/usr/sbin" \
         "$MOCHI_ROOTFS/System/usr/lib" \
+        "$MOCHI_ROOTFS/System/usr/lib64" \
         "$MOCHI_ROOTFS/System/usr/include" \
-        "$MOCHI_ROOTFS/System/usr/share/doc" \
-        "$MOCHI_ROOTFS/System/usr/share/man" \
-        "$MOCHI_ROOTFS/System/etc/default" \
+        "$MOCHI_ROOTFS/System/Library/Shared/Documentions" \
+        "$MOCHI_ROOTFS/System/Library/Shared/Documentions/Manuals" \
+        "$MOCHI_ROOTFS/System/Library/Configurations/default" \
         "$MOCHI_ROOTFS/System/Library/Kernel/grub" \
         "$MOCHI_ROOTFS/Applications" \
         "$MOCHI_ROOTFS/Library" \
@@ -387,21 +388,19 @@ cmd_rootfs() {
         "$MOCHI_ROOTFS/var/lib/hwclock"
 
     # Internal System/ compat symlinks
-    ln -sfn usr/lib   "$MOCHI_ROOTFS/System/lib"   2>/dev/null || true
-    ln -sfn usr/lib64 "$MOCHI_ROOTFS/System/lib64" 2>/dev/null || true
-    ln -sfn lib       "$MOCHI_ROOTFS/System/usr/lib64" 2>/dev/null || true
-    ln -sfn usr/bin   "$MOCHI_ROOTFS/System/bin"   2>/dev/null || true
-    ln -sfn usr/sbin  "$MOCHI_ROOTFS/System/sbin"  2>/dev/null || true
+    ln -sfn System/usr/bin   "$MOCHI_ROOTFS/System/bin"   2>/dev/null || true
+    ln -sfn System/usr/sbin  "$MOCHI_ROOTFS/System/sbin"  2>/dev/null || true
 
     # Root-level symlinks (matching rootfs.txt)
-    ln -sfn System/usr/bin        "$MOCHI_ROOTFS/bin"   2>/dev/null || true
-    ln -sfn System/usr/sbin       "$MOCHI_ROOTFS/sbin"  2>/dev/null || true
-    ln -sfn System/usr            "$MOCHI_ROOTFS/usr"   2>/dev/null || true
-    ln -sfn System/lib            "$MOCHI_ROOTFS/lib"   2>/dev/null || true
-    ln -sfn System/lib64          "$MOCHI_ROOTFS/lib64" 2>/dev/null || true
-    ln -sfn System/etc            "$MOCHI_ROOTFS/etc"   2>/dev/null || true
-    ln -sfn System/Library/Kernel "$MOCHI_ROOTFS/boot"  2>/dev/null || true
-    ln -sfn Users/Administrator   "$MOCHI_ROOTFS/root"  2>/dev/null || true
+    ln -sfn System/usr/bin                              "$MOCHI_ROOTFS/bin"   2>/dev/null || true
+    ln -sfn System/usr/sbin                             "$MOCHI_ROOTFS/sbin"  2>/dev/null || true
+    ln -sfn System/usr                                  "$MOCHI_ROOTFS/usr"   2>/dev/null || true
+    ln -sfn System/usr/lib                                  "$MOCHI_ROOTFS/lib"   2>/dev/null || true
+    ln -sfn System/usr/lib64                                "$MOCHI_ROOTFS/lib64" 2>/dev/null || true
+    ln -sfn System/Library/Configurations               "$MOCHI_ROOTFS/etc"   2>/dev/null || true
+    ln -sfn System/Library/Shared/Documentions          "$MOCHI_ROOTFS/System/usr/share/doc" 2>/dev/null || true
+    ln -sfn System/Library/Shared/Documentions/Manuals  "$MOCHI_ROOTFS/System/usr/share/man" 2>/dev/null || true
+    ln -sfn Users/Administrator                         "$MOCHI_ROOTFS/root"  2>/dev/null || true
 
     # Permissions
     chmod 1777 "$MOCHI_ROOTFS/tmp"
