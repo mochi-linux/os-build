@@ -8,6 +8,23 @@
 
 set -euo pipefail
 
+# Cleanup trap for error handling
+cleanup_on_error() {
+    local exit_code=$?
+    if [ $exit_code -ne 0 ]; then
+        echo ""
+        echo "════════════════════════════════════════════════════════════"
+        echo "  BUILD FAILED (exit code: $exit_code)"
+        echo "  Cleaning up mounts..."
+        echo "════════════════════════════════════════════════════════════"
+        _umount_chroot 2>/dev/null || true
+        echo "  Cleanup complete. You can restart the build."
+        echo "════════════════════════════════════════════════════════════"
+    fi
+}
+
+trap cleanup_on_error EXIT ERR
+
 # ---------------------------------------------------------------------------
 # Configuration  (override via environment before calling this script)
 # ---------------------------------------------------------------------------
@@ -60,6 +77,10 @@ SOURCES_LIST=(
     "https://www.cpan.org/src/5.0/perl-5.42.1.tar.gz"
     "https://ftp.gnu.org/gnu/automake/automake-1.17.tar.gz"
     "https://ftp.gnu.org/gnu/libtool/libtool-2.5.4.tar.xz"
+    "https://www.openssl.org/source/openssl-3.4.0.tar.gz"
+    "https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.xz"
+    "https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz"
+    "https://sourceware.org/elfutils/ftp/0.192/elfutils-0.192.tar.bz2"
 )
 
 # ---------------------------------------------------------------------------
@@ -422,17 +443,21 @@ _mount_chroot() {
 }
 
 _umount_chroot() {
-    umount -R "$MOCHI_ROOTFS/dev"          2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/proc"         2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/sys"          2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/run"          2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/tmp"          2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/sources"      2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/build"        2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/cross"        2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/host-bin"     2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/host-lib64"   2>/dev/null || true
-    umount    "$MOCHI_ROOTFS/host-usrlib"  2>/dev/null || true
+    # Use lazy unmount (-l) to handle busy mounts and prevent mount point exhaustion
+    umount -l -R "$MOCHI_ROOTFS/dev"          2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/proc"         2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/sys"          2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/run"          2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/tmp"          2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/sources"      2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/build"        2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/cross"        2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/host-bin"     2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/host-lib64"   2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/host-usrlib"  2>/dev/null || true
+    
+    # Give kernel time to clean up lazy unmounts
+    sleep 0.5
 }
 
 # Mount the cross-compiler and host fallback tools into the chroot, then
@@ -499,6 +524,9 @@ _setup_chroot_toolchain() {
 
 _enter_chroot() {
     local step="$1"
+    
+    # Clean up any existing mounts first to prevent mount point exhaustion
+    _umount_chroot
 
     # Inject build scripts into rootfs
     mkdir -p "$MOCHI_ROOTFS/scripts/chroot"

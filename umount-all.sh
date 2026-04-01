@@ -23,13 +23,14 @@ umount_all() {
     
     log "Rootfs path: $MOCHI_ROOTFS"
     
-    # Unmount chroot system mounts (from _umount_chroot)
+    # First pass: unmount all known mount points with lazy unmount
     log "Unmounting chroot system mounts..."
     umount -l "$MOCHI_ROOTFS/dev/pts"     2>/dev/null || true
     umount -l "$MOCHI_ROOTFS/dev"         2>/dev/null || true
     umount -l "$MOCHI_ROOTFS/proc"        2>/dev/null || true
     umount -l "$MOCHI_ROOTFS/sys"         2>/dev/null || true
     umount -l "$MOCHI_ROOTFS/run"         2>/dev/null || true
+    umount -l "$MOCHI_ROOTFS/tmp"         2>/dev/null || true
     
     # Unmount build directories
     log "Unmounting build directories..."
@@ -43,23 +44,40 @@ umount_all() {
     umount -l "$MOCHI_ROOTFS/host-lib64"  2>/dev/null || true
     umount -l "$MOCHI_ROOTFS/host-usrlib" 2>/dev/null || true
     
-    # Double-check with findmnt and unmount any remaining mounts under rootfs
+    # Give kernel time to process lazy unmounts
+    sleep 1
+    
+    # Second pass: find and unmount any remaining mounts under rootfs
     log "Checking for remaining mounts under $MOCHI_ROOTFS..."
     if command -v findmnt >/dev/null 2>&1; then
         local remaining
         remaining=$(findmnt -R -n -o TARGET "$MOCHI_ROOTFS" 2>/dev/null | tac || true)
         if [ -n "$remaining" ]; then
-            log "Found remaining mounts, unmounting..."
+            log "Found remaining mounts, force unmounting..."
             while IFS= read -r mount_point; do
-                [ -n "$mount_point" ] && umount -l "$mount_point" 2>/dev/null || true
+                if [ -n "$mount_point" ]; then
+                    log "  Unmounting: $mount_point"
+                    umount -l "$mount_point" 2>/dev/null || true
+                fi
             done <<< "$remaining"
+            sleep 1
         fi
+    fi
+    
+    # Third pass: aggressive cleanup if anything still mounted
+    if findmnt -R -n "$MOCHI_ROOTFS" >/dev/null 2>&1; then
+        log "WARNING: Some mounts still present, attempting force unmount..."
+        umount -l -R "$MOCHI_ROOTFS" 2>/dev/null || true
+        sleep 1
     fi
     
     log "All bind mounts unmounted successfully"
     log ""
     log "Verifying with lsblk..."
     lsblk 2>/dev/null || true
+    log ""
+    log "Remaining mounts under $MOCHI_ROOTFS (if any):"
+    findmnt -R "$MOCHI_ROOTFS" 2>/dev/null || log "  None - all clean!"
 }
 
 main() {
