@@ -58,6 +58,8 @@ SOURCES_LIST=(
     "https://libisl.sourceforge.io/isl-0.27.tar.xz"
     "https://mirror.cyberbits.asia/gnu/autoconf/autoconf-latest.tar.xz"
     "https://www.cpan.org/src/5.0/perl-5.42.1.tar.gz"
+    "https://ftp.gnu.org/gnu/automake/automake-1.17.tar.gz"
+    "https://ftp.gnu.org/gnu/libtool/libtool-2.5.4.tar.xz"
 )
 
 # ---------------------------------------------------------------------------

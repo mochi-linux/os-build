@@ -18,7 +18,7 @@ set -euo pipefail
 : "${BUILD_MODE:=host}"  # host or cluster
 
 # Package versions (mirror SOURCES.txt)
-LINUX_VER="7.0-rc5"
+LINUX_VER="7.0-rc6"
 BASH_VER="5.3"
 COREUTILS_VER="9.10"
 UTIL_LINUX_VER="2.40"
@@ -33,6 +33,8 @@ TAR_VER="1.35"
 KMOD_VER="34"
 PERL_VER="5.42.1"
 AUTOCONF_VER="2.73"
+AUTOMAKE_VER="1.17"
+LIBTOOL_VER="2.5.4"
 
 BOOT_DIR="/System/Library/Kernel"
 
@@ -303,6 +305,24 @@ build_system() {
     log "  -> Autoconf $AUTOCONF_VER"
     src="$MOCHI_SOURCES/autoconf-$AUTOCONF_VER"
     bld="$MOCHI_BUILD/build-autoconf"
+    conf_build "$src" "$bld" \
+        --prefix=/usr
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+
+    # --- Automake ---
+    log "  -> Automake $AUTOMAKE_VER"
+    src="$MOCHI_SOURCES/automake-$AUTOMAKE_VER"
+    bld="$MOCHI_BUILD/build-automake"
+    conf_build "$src" "$bld" \
+        --prefix=/usr
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+
+    # --- Libtool ---
+    log "  -> Libtool $LIBTOOL_VER"
+    src="$MOCHI_SOURCES/libtool-$LIBTOOL_VER"
+    bld="$MOCHI_BUILD/build-libtool"
     conf_build "$src" "$bld" \
         --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
