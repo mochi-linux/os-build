@@ -15,7 +15,6 @@ FEATURES
 • Multiple distribution formats (tarball, disk image, SquashFS)
 • Bootable UEFI disk images with GRUB
 • Minimal system configuration included
-• macOS-inspired directory structure (/System, /Library, /Users)
 
 
 PROJECT STRUCTURE
@@ -55,7 +54,7 @@ mochios/
 
 ROOTFS LAYOUT
 -------------
-The MochiOS filesystem follows a macOS-inspired directory structure:
+The MochiOS filesystem follows custom directory structure:
 
   /System/                    Core OS files
     usr/bin                   User binaries
