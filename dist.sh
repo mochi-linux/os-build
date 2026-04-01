@@ -32,7 +32,7 @@ copy_system_config() {
     hdr "Copying System Configuration"
     
     local config_src="$SCRIPT_DIR/config/etc"
-    local config_dst="$MOCHI_ROOTFS/System/etc"
+    local config_dst="$MOCHI_ROOTFS/System/Library/Configurations"
     
     if [ ! -d "$config_src" ]; then
         log "Warning: No config files found at $config_src"
@@ -298,16 +298,16 @@ create_bootable_image() {
     
     # Update fstab with UUIDs
     log "Updating fstab with partition UUIDs..."
-    cat > "$mount_point/System/etc/fstab" << EOF
+    cat > "$mount_point/System/Library/Configurations/fstab" << EOF
 # /etc/fstab: static file system information
 #
 # <file system>        <mount point>   <type>  <options>       <dump>  <pass>
 
 # Root filesystem
-UUID=$root_uuid        /               ext4    defaults        1       1
+/dev/sda2        /               ext4    defaults        1       1
 
 # EFI System Partition
-UUID=$efi_uuid         /System/Library/Kernel/Boot/UEFI       vfat    defaults        0       2
+/dev/sda1         /System/Library/Kernel/Boot/UEFI       vfat    defaults        0       2
 
 # Temporary filesystems
 tmpfs                  /tmp            tmpfs   defaults,nodev,nosuid   0       0
@@ -349,7 +349,7 @@ terminal_input console
 
 menuentry "MochiOS" {
     search --no-floppy --set=root --fs-uuid $root_uuid
-    linux  /System/Library/Kernel/vmlinuz root=UUID=$root_uuid rw
+    linux  /System/Library/Kernel/vmlinuz root=/dev/sda2 rw
 }
 EOF
     
