@@ -1,0 +1,40 @@
+# /etc/profile: system-wide .profile file for the Bourne shell (sh(1))
+# and Bourne compatible shells (bash(1), ksh(1), ash(1), ...).
+
+# Set default PATH
+export PATH="/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Set default umask
+umask 022
+
+# Set locale
+export LANG=C.UTF-8
+export LC_ALL=C.UTF-8
+
+# Set default editor
+export EDITOR=vi
+export VISUAL=vi
+
+# Set pager
+export PAGER=less
+
+# Colorful ls
+if [ -x /usr/bin/dircolors ]; then
+    eval "$(dircolors -b)"
+    alias ls='ls --color=auto'
+fi
+
+# Common aliases
+alias ll='ls -lh'
+alias la='ls -lah'
+alias l='ls -CF'
+
+# Load profile extensions
+if [ -d /etc/profile.d ]; then
+    for i in /etc/profile.d/*.sh; do
+        if [ -r "$i" ]; then
+            . "$i"
+        fi
+    done
+    unset i
+fi

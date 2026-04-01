@@ -533,6 +533,13 @@ _enter_chroot() {
     cp "$SCRIPT_DIR/scripts/chroot/buildsource.sh" \
        "$MOCHI_ROOTFS/scripts/chroot/buildsource.sh"
     chmod +x "$MOCHI_ROOTFS/scripts/chroot/buildsource.sh"
+    
+    # Copy init source into rootfs for building
+    if [ -d "$SCRIPT_DIR/init" ]; then
+        log "Copying init source to rootfs"
+        rm -rf "$MOCHI_ROOTFS/init"
+        cp -r "$SCRIPT_DIR/init" "$MOCHI_ROOTFS/init"
+    fi
 
     # Stage kernel config into sources so it is visible at /sources/mochi.config
     local kconfig_src="$SCRIPT_DIR/config/mochi.config"

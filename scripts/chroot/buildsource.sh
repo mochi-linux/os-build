@@ -477,6 +477,32 @@ build_system() {
     mark_built "make"
     fi
 
+    # --- Init System ---
+    if ! skip_if_built "init"; then
+    log "  -> MochiOS Init"
+    
+    # Copy init source to build directory
+    local init_src="/scripts/../init"
+    local init_bld="$MOCHI_BUILD/build-init"
+    
+    if [ -d "$init_src" ]; then
+        rm -rf "$init_bld"
+        cp -r "$init_src" "$init_bld"
+        cd "$init_bld"
+        
+        # Build init
+        eval make -j"$JOBS" $MAKE_CC
+        
+        # Install to /sbin/init
+        install -D -m 755 build/init /sbin/init
+        
+        log "Init system installed to /sbin/init"
+        mark_built "init"
+    else
+        log "Warning: Init source not found at $init_src, skipping"
+    fi
+    fi
+
     log "System utilities installed"
 }
 

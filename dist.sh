@@ -10,6 +10,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 : "${DIST_DIR:=$SCRIPT_DIR/dist}"
 : "${DIST_NAME:=mochios-rootfs}"
 : "${DIST_VERSION:=$(date +%Y%m%d)}"
+: "${IMAGE_SIZE:=4G}"
+: "${IMAGE_NAME:=mochios-${DIST_VERSION}.img}"
 
 log() { echo "[DIST] $(date +%H:%M:%S)  $*"; }
 die() { echo "[DIST] ERROR: $*" >&2; exit 1; }
@@ -26,6 +28,33 @@ require_root() {
     fi
 }
 
+copy_system_config() {
+    hdr "Copying System Configuration"
+    
+    local config_src="$SCRIPT_DIR/config/etc"
+    local config_dst="$MOCHI_ROOTFS/System/etc"
+    
+    if [ ! -d "$config_src" ]; then
+        log "Warning: No config files found at $config_src"
+        return 0
+    fi
+    
+    log "Copying configuration files from $config_src to $config_dst"
+    
+    # Create etc directory if it doesn't exist
+    mkdir -p "$config_dst"
+    
+    # Copy all config files
+    cp -av "$config_src"/* "$config_dst/"
+    
+    # Set proper permissions
+    chmod 644 "$config_dst"/{fstab,hostname,hosts,shells,issue,os-release,inittab,nsswitch.conf,profile} 2>/dev/null || true
+    chmod 600 "$config_dst/shadow" 2>/dev/null || true
+    chmod 644 "$config_dst"/{passwd,group} 2>/dev/null || true
+    
+    log "System configuration files installed"
+}
+
 create_dist_tarball() {
     hdr "MochiOS Distribution Builder"
     
@@ -37,6 +66,9 @@ create_dist_tarball() {
     if [ ! -d "$MOCHI_ROOTFS" ]; then
         die "Rootfs not found at $MOCHI_ROOTFS. Run buildworld.sh first."
     fi
+    
+    # Copy system configuration files
+    copy_system_config
     
     # Create dist directory
     mkdir -p "$DIST_DIR"
@@ -181,34 +213,216 @@ EOF
     log "Manifest created: $manifest"
 }
 
+create_bootable_image() {
+    hdr "Creating Bootable Disk Image"
+    
+    local image_path="$DIST_DIR/$IMAGE_NAME"
+    local loop_dev=""
+    local efi_part=""
+    local root_part=""
+    local mount_point="$MOCHI_BUILD/image-mount"
+    
+    log "Image: $image_path"
+    log "Size: $IMAGE_SIZE"
+    
+    # Create sparse image file
+    log "Creating disk image..."
+    dd if=/dev/zero of="$image_path" bs=1 count=0 seek="$IMAGE_SIZE" 2>/dev/null
+    
+    # Create partition table
+    log "Creating GPT partition table..."
+    parted -s "$image_path" mklabel gpt
+    parted -s "$image_path" mkpart ESP fat32 1MiB 513MiB
+    parted -s "$image_path" set 1 esp on
+    parted -s "$image_path" mkpart primary ext4 513MiB 100%
+    
+    # Setup loop device
+    log "Setting up loop device..."
+    loop_dev=$(losetup -fP --show "$image_path")
+    log "Loop device: $loop_dev"
+    
+    # Wait for partition devices
+    sleep 1
+    partprobe "$loop_dev" 2>/dev/null || true
+    sleep 1
+    
+    efi_part="${loop_dev}p1"
+    root_part="${loop_dev}p2"
+    
+    # Format partitions
+    log "Formatting EFI partition..."
+    mkfs.vfat -F 32 -n MOCHIOS_EFI "$efi_part"
+    
+    log "Formatting root partition..."
+    mkfs.ext4 -L MOCHIOS_ROOT "$root_part"
+    
+    # Get UUIDs
+    local efi_uuid=$(blkid -s UUID -o value "$efi_part")
+    local root_uuid=$(blkid -s UUID -o value "$root_part")
+    
+    log "EFI UUID: $efi_uuid"
+    log "Root UUID: $root_uuid"
+    
+    # Mount partitions
+    log "Mounting partitions..."
+    mkdir -p "$mount_point"
+    mount "$root_part" "$mount_point"
+    mkdir -p "$mount_point/boot/efi"
+    mount "$efi_part" "$mount_point/boot/efi"
+    
+    # Copy rootfs
+    log "Copying rootfs to image..."
+    rsync -aHAX --info=progress2 "$MOCHI_ROOTFS/" "$mount_point/"
+    
+    # Update fstab with UUIDs
+    log "Updating fstab with partition UUIDs..."
+    cat > "$mount_point/System/etc/fstab" << EOF
+# /etc/fstab: static file system information
+#
+# <file system>        <mount point>   <type>  <options>       <dump>  <pass>
+
+# Root filesystem
+UUID=$root_uuid        /               ext4    defaults        1       1
+
+# EFI System Partition
+UUID=$efi_uuid         /boot/efi       vfat    defaults        0       2
+
+# Temporary filesystems
+tmpfs                  /tmp            tmpfs   defaults,nodev,nosuid   0       0
+tmpfs                  /run            tmpfs   defaults,nodev,nosuid   0       0
+EOF
+    
+    # Install GRUB
+    log "Installing GRUB bootloader..."
+    
+    # Create GRUB directory
+    mkdir -p "$mount_point/boot/efi/EFI/BOOT"
+    mkdir -p "$mount_point/System/Library/Kernel/grub"
+    
+    # Install GRUB to EFI partition
+    if command -v grub-install >/dev/null 2>&1; then
+        grub-install --target=x86_64-efi \
+                     --efi-directory="$mount_point/boot/efi" \
+                     --boot-directory="$mount_point/System/Library/Kernel" \
+                     --removable \
+                     --no-nvram \
+                     "$loop_dev" || log "Warning: GRUB installation failed, creating manual config"
+    else
+        log "Warning: grub-install not found, creating manual GRUB config"
+    fi
+    
+    # Create GRUB configuration
+    log "Creating GRUB configuration..."
+    cat > "$mount_point/System/Library/Kernel/grub/grub.cfg" << EOF
+set default=0
+set timeout=5
+
+insmod part_gpt
+insmod fat
+insmod ext2
+
+# Load video drivers
+insmod all_video
+insmod gfxterm
+terminal_output gfxterm
+
+menuentry "MochiOS" {
+    search --no-floppy --set=root --fs-uuid $root_uuid
+    linux  /System/Library/Kernel/vmlinuz root=UUID=$root_uuid rw quiet splash
+}
+
+menuentry "MochiOS (Recovery Mode)" {
+    search --no-floppy --set=root --fs-uuid $root_uuid
+    linux  /System/Library/Kernel/vmlinuz root=UUID=$root_uuid rw single init=/bin/bash
+}
+
+menuentry "MochiOS (Verbose Boot)" {
+    search --no-floppy --set=root --fs-uuid $root_uuid
+    linux  /System/Library/Kernel/vmlinuz root=UUID=$root_uuid rw debug
+}
+EOF
+    
+    # Sync and unmount
+    log "Syncing filesystems..."
+    sync
+    
+    log "Unmounting partitions..."
+    umount "$mount_point/boot/efi"
+    umount "$mount_point"
+    
+    # Detach loop device
+    log "Detaching loop device..."
+    losetup -d "$loop_dev"
+    
+    # Clean up mount point
+    rmdir "$mount_point" 2>/dev/null || true
+    
+    # Get final image size
+    local img_size=$(du -h "$image_path" | cut -f1)
+    
+    # Create checksum
+    log "Generating checksum..."
+    (cd "$DIST_DIR" && sha256sum "$IMAGE_NAME" > "$IMAGE_NAME.sha256")
+    
+    hdr "Bootable Image Created Successfully"
+    log ""
+    log "Image: $image_path"
+    log "Size: $img_size"
+    log "EFI UUID: $efi_uuid"
+    log "Root UUID: $root_uuid"
+    log "Checksum: $DIST_DIR/$IMAGE_NAME.sha256"
+    log ""
+    log "To write to USB/disk:"
+    log "  sudo dd if=$image_path of=/dev/sdX bs=4M status=progress && sync"
+    log ""
+    log "To boot in QEMU:"
+    log "  qemu-system-x86_64 -enable-kvm -m 2G -drive file=$image_path,format=raw -bios /usr/share/ovmf/OVMF.fd"
+}
+
 show_usage() {
     cat << EOF
-Usage: $0 [OPTIONS]
+Usage: $0 [COMMAND] [OPTIONS]
 
-Create a distribution tarball from the built MochiOS rootfs.
+Create distribution artifacts from the built MochiOS rootfs.
+
+Commands:
+  tarball           Create compressed rootfs tarball (default)
+  image             Create bootable disk image (.img)
+  all               Create both tarball and image
 
 Options:
   --name NAME       Distribution name (default: mochios-rootfs)
   --version VER     Version string (default: YYYYMMDD)
   --output DIR      Output directory (default: ./dist)
+  --size SIZE       Image size for disk image (default: 4G)
   --manifest        Create manifest file (default: yes)
   --help            Show this help message
 
 Examples:
-  sudo ./dist.sh
-  sudo ./dist.sh --name mochios --version 1.0.0
-  sudo ./dist.sh --output /tmp/dist
+  sudo ./dist.sh tarball
+  sudo ./dist.sh image
+  sudo ./dist.sh all
+  sudo ./dist.sh image --size 8G --version 1.0.0
+  sudo ./dist.sh tarball --output /tmp/dist
 
 Environment Variables:
   MOCHI_BUILD       Build directory (default: ./buildfs)
   MOCHI_ROOTFS      Rootfs directory (default: \$MOCHI_BUILD/rootfs)
   DIST_DIR          Output directory (default: ./dist)
+  IMAGE_SIZE        Disk image size (default: 4G)
 
 EOF
 }
 
 main() {
     local create_manifest_file=true
+    local command="tarball"
+    
+    # Parse command
+    if [ $# -gt 0 ] && [[ ! "$1" =~ ^-- ]]; then
+        command="$1"
+        shift
+    fi
     
     # Parse arguments
     while [ $# -gt 0 ]; do
@@ -223,6 +437,11 @@ main() {
                 ;;
             --output)
                 DIST_DIR="$2"
+                shift 2
+                ;;
+            --size)
+                IMAGE_SIZE="$2"
+                IMAGE_NAME="mochios-${DIST_VERSION}.img"
                 shift 2
                 ;;
             --manifest)
@@ -246,14 +465,37 @@ main() {
     done
     
     require_root
-    create_dist_tarball
     
-    if [ "$create_manifest_file" = true ]; then
-        create_manifest
-    fi
-    
-    hdr "Distribution Build Complete"
-    log "Ready for deployment!"
+    # Execute command
+    case "$command" in
+        tarball)
+            create_dist_tarball
+            if [ "$create_manifest_file" = true ]; then
+                create_manifest
+            fi
+            hdr "Tarball Distribution Complete"
+            log "Ready for deployment!"
+            ;;
+        image)
+            create_bootable_image
+            hdr "Image Distribution Complete"
+            log "Ready to boot!"
+            ;;
+        all)
+            create_dist_tarball
+            if [ "$create_manifest_file" = true ]; then
+                create_manifest
+            fi
+            create_bootable_image
+            hdr "All Distributions Complete"
+            log "Tarball and image ready!"
+            ;;
+        *)
+            echo "Unknown command: $command"
+            show_usage
+            exit 1
+            ;;
+    esac
 }
 
 main "$@"

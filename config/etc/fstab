@@ -1,0 +1,13 @@
+# /etc/fstab: static file system information
+#
+# <file system>        <mount point>   <type>  <options>       <dump>  <pass>
+
+# Root filesystem
+LABEL=MOCHIOS_ROOT     /               ext4    defaults        1       1
+
+# EFI System Partition
+LABEL=MOCHIOS_EFI      /boot/efi       vfat    defaults        0       2
+
+# Temporary filesystems
+tmpfs                  /tmp            tmpfs   defaults,nodev,nosuid   0       0
+tmpfs                  /run            tmpfs   defaults,nodev,nosuid   0       0

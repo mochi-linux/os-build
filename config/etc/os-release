@@ -1,0 +1,10 @@
+NAME="MochiOS"
+VERSION="2026.04.01"
+ID=mochios
+ID_LIKE=
+VERSION_ID=2026.04.01
+PRETTY_NAME="MochiOS 2026.04.01"
+ANSI_COLOR="1;35"
+HOME_URL="https://mochilinux.org"
+SUPPORT_URL="https://mochilinux.org/support"
+BUG_REPORT_URL="https://mochilinux.org/issues"
