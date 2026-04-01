@@ -18,7 +18,7 @@ set -euo pipefail
 : "${MOCHI_CROSS:=$MOCHI_BUILD/cross}"
 : "${MOCHI_TARGET:=x86_64-mochios-linux-gnu}"
 : "${MOCHI_IMAGE:=$MOCHI_BUILD/mochios.img}"
-: "${JOBS:=$(($(nproc)*2))}"
+: "${JOBS:=$(($(nproc)*2+8))}"
 : "${ARIA2_CONNECTIONS:=16}"
 : "${ARIA2_SPLITS:=16}"
 : "${ARIA2_MIN_SPLIT:=1M}"
@@ -37,7 +37,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source URLs  (from SOURCES.txt)
 # ---------------------------------------------------------------------------
 SOURCES_LIST=(
-    "https://git.kernel.org/torvalds/t/linux-7.0-rc5.tar.gz"
+    "https://git.kernel.org/torvalds/t/linux-7.0-rc6.tar.gz"
     "https://mirror.cyberbits.asia/gnu/glibc/glibc-2.43.tar.xz"
     "https://mirror.cyberbits.asia/gnu/gcc/gcc-15.2.0/gcc-15.2.0.tar.xz"
     "https://mirror.cyberbits.asia/gnu/binutils/binutils-2.46.0.tar.xz"

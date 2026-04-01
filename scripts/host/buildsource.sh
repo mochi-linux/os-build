@@ -12,11 +12,11 @@ set -euo pipefail
 : "${MOCHI_SYSROOT:=$MOCHI_BUILD/sysroot}"
 : "${MOCHI_CROSS:=$MOCHI_BUILD/cross}"
 : "${MOCHI_TARGET:=x86_64-mochios-linux-gnu}"
-: "${JOBS:=$(($(nproc) * 2))}"
+: "${JOBS:=$(($(nproc) * 2 +8))}"
 : "${BUILD_MODE:=host}"  # host or cluster
 
 # Package versions (mirror SOURCES.txt)
-LINUX_VER="7.0-rc5"
+LINUX_VER="7.0-rc6"
 BINUTILS_VER="2.46.0"
 GCC_VER="15.2.0"
 GLIBC_VER="2.43"
