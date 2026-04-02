@@ -39,6 +39,8 @@ OPENSSL_VER="3.4.0"
 BISON_VER="3.8.2"
 FLEX_VER="2.6.4"
 ELFUTILS_VER="0.192"
+NANO_VER="7.2"
+HTOP_VER="3.4.1"
 
 BOOT_DIR="/System/Library/Kernel"
 
@@ -477,6 +479,34 @@ build_system() {
     mark_built "make"
     fi
 
+    # --- Nano ---
+    if ! skip_if_built "nano"; then
+    log "  -> Nano $NANO_VER"
+    src="$MOCHI_SOURCES/nano-$NANO_VER"
+    bld="$MOCHI_BUILD/build-nano"
+    conf_build "$src" "$bld" \
+        --prefix=/usr \
+        --sysconfdir=/etc \
+        --enable-utf8 \
+        --docdir=/usr/share/doc/nano
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    mark_built "nano"
+    fi
+
+    # --- Htop ---
+    if ! skip_if_built "htop"; then
+    log "  -> Htop $HTOP_VER"
+    src="$MOCHI_SOURCES/htop-$HTOP_VER"
+    bld="$MOCHI_BUILD/build-htop"
+    conf_build "$src" "$bld" \
+        --prefix=/usr \
+        --sysconfdir=/etc
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    mark_built "htop"
+    fi
+
     # --- Init System ---
     if ! skip_if_built "init"; then
     log "  -> MochiOS Init"
@@ -674,7 +704,8 @@ Steps (run in order, inside MochiOS chroot):
   coreutils  Build and install GNU Coreutils
   system     Build and install system utilities
                (ncurses, zlib, xz, gzip, tar, findutils,
-                util-linux, inetutils, kmod, make, init, sysutils)
+                util-linux, inetutils, kmod, make, nano, htop,
+                init, sysutils)
   kernel     Build and install Linux kernel + modules
   firmware   Install Linux firmware (i915, amdgpu, CPU microcode)
   grub       Write GRUB configuration

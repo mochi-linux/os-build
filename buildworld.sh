@@ -82,6 +82,8 @@ SOURCES_LIST=(
     "https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz"
     "https://sourceware.org/elfutils/ftp/0.192/elfutils-0.192.tar.bz2"
     "https://www.kernel.org/pub/linux/kernel/firmware/linux-firmware-20260309.tar.gz"
+    "https://mirror.cyberbits.asia/gnu/nano/nano-7.2.tar.gz"
+    "https://github.com/htop-dev/htop/releases/download/3.4.1/htop-3.4.1.tar.xz"
 )
 
 # ---------------------------------------------------------------------------
