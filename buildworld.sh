@@ -388,8 +388,8 @@ cmd_rootfs() {
         "$MOCHI_ROOTFS/var/lib/hwclock"
 
     # Internal System/ compat symlinks
-    ln -sfn System/usr/bin   "$MOCHI_ROOTFS/System/bin"   2>/dev/null || true
-    ln -sfn System/usr/sbin  "$MOCHI_ROOTFS/System/sbin"  2>/dev/null || true
+    ln -sfn usr/bin   "$MOCHI_ROOTFS/System/bin"   2>/dev/null || true
+    ln -sfn usr/sbin  "$MOCHI_ROOTFS/System/sbin"  2>/dev/null || true
 
     # Root-level symlinks (matching rootfs.txt)
     ln -sfn System/usr/bin                              "$MOCHI_ROOTFS/bin"   2>/dev/null || true
