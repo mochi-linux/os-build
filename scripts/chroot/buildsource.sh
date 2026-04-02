@@ -503,6 +503,35 @@ build_system() {
     fi
     fi
 
+    # --- System Utilities (powerctl) ---
+    if ! skip_if_built "sysutils"; then
+    log "  -> System Utilities"
+    
+    # Copy sysutils source to build directory
+    local sysutils_src="/scripts/../sysutils"
+    local sysutils_bld="$MOCHI_BUILD/build-sysutils"
+    
+    if [ -d "$sysutils_src" ]; then
+        rm -rf "$sysutils_bld"
+        cp -r "$sysutils_src" "$sysutils_bld"
+        cd "$sysutils_bld"
+        
+        # Build sysutils
+        eval make -j"$JOBS" $MAKE_CC
+        
+        # Install to /sbin
+        install -D -m 755 powerctl/powerctl /sbin/powerctl
+        ln -sf powerctl /sbin/poweroff
+        ln -sf powerctl /sbin/reboot
+        ln -sf powerctl /sbin/halt
+        
+        log "System utilities installed (powerctl, poweroff, reboot, halt)"
+        mark_built "sysutils"
+    else
+        log "Warning: Sysutils source not found at $sysutils_src, skipping"
+    fi
+    fi
+
     log "System utilities installed"
 }
 
@@ -549,10 +578,45 @@ build_kernel() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 5 – GRUB
+# Step 5 – Linux Firmware
+# ---------------------------------------------------------------------------
+build_firmware() {
+    skip_if_built "firmware" && return 0
+    hdr "[5/6] Linux Firmware"
+    
+    local fw_src="$MOCHI_SOURCES/linux-firmware-20260309"
+    local fw_dir="/System/Library/Kernel/Firmware"
+    
+    if [ ! -d "$fw_src" ]; then
+        log "Warning: Linux firmware source not found at $fw_src"
+        log "Make sure to run 'buildworld.sh fetch' first to extract firmware"
+        return 0
+    fi
+    
+    # Create firmware directory
+    mkdir -p "$fw_dir"
+    
+    log "Installing all firmware from $fw_src..."
+    log "This may take a few moments..."
+    
+    # Copy all firmware files and directories
+    cp -r "$fw_src"/* "$fw_dir/"
+    
+    # Count installed files
+    local fw_count=$(find "$fw_dir" -type f | wc -l)
+    local fw_size=$(du -sh "$fw_dir" | cut -f1)
+    
+    log "Firmware installed to $fw_dir"
+    log "  Files: $fw_count"
+    log "  Size: $fw_size"
+    mark_built "firmware"
+}
+
+# ---------------------------------------------------------------------------
+# Step 6 – GRUB
 # ---------------------------------------------------------------------------
 build_grub() {
-    hdr "[5/5] GRUB Bootloader (SKIPPED - optional)"
+    hdr "[6/6] GRUB Bootloader (SKIPPED - optional)"
     log "  -> GRUB configuration (SKIPPED - bootloader can be configured manually)"
     return 0
     
@@ -610,8 +674,9 @@ Steps (run in order, inside MochiOS chroot):
   coreutils  Build and install GNU Coreutils
   system     Build and install system utilities
                (ncurses, zlib, xz, gzip, tar, findutils,
-                util-linux, inetutils, kmod, make)
+                util-linux, inetutils, kmod, make, init, sysutils)
   kernel     Build and install Linux kernel + modules
+  firmware   Install Linux firmware (i915, amdgpu, CPU microcode)
   grub       Write GRUB configuration
   all        Run all steps in order (default)
 
@@ -639,12 +704,14 @@ main() {
         coreutils) build_coreutils ;;
         system)    build_system ;;
         kernel)    build_kernel ;;
+        firmware)  build_firmware ;;
         grub)      build_grub ;;
         all)
             build_bash
             build_coreutils
             build_system
             build_kernel
+            build_firmware
             build_grub
             ;;
         help|-h|--help) usage ;;

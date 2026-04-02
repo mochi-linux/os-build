@@ -139,7 +139,7 @@ static void setup_hostname(void) {
 
 /* Set up environment */
 static void setup_environment(void) {
-    setenv("PATH", "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", 1);
+    setenv("PATH", "/System/usr/local/sbin:/System/usr/local/bin:/System/usr/sbin:/System/usr/bin:/System/sbin:/System/bin", 1);
     setenv("HOME", "/root", 1);
     setenv("TERM", "linux", 1);
     setenv("SHELL", "/bin/bash", 1);
@@ -184,6 +184,55 @@ static void setup_signals(void) {
     signal(SIGHUP, SIG_IGN);
     signal(SIGUSR1, SIG_IGN);
     signal(SIGUSR2, SIG_IGN);
+}
+
+/* Spawn emergency console shell */
+static void spawn_emergency_console(void) {
+    pid_t pid = fork();
+    
+    if (pid < 0) {
+        log_error("Failed to fork emergency console");
+        return;
+    }
+    
+    if (pid == 0) {
+        /* Child process */
+        setsid();
+        
+        /* Open /dev/console for stdin, stdout, stderr */
+        int fd = open("/dev/console", O_RDWR);
+        if (fd < 0) {
+            _exit(1);
+        }
+        
+        dup2(fd, 0);  /* stdin */
+        dup2(fd, 1);  /* stdout */
+        dup2(fd, 2);  /* stderr */
+        
+        if (fd > 2) {
+            close(fd);
+        }
+        
+        /* Reset signals */
+        signal(SIGCHLD, SIG_DFL);
+        signal(SIGTERM, SIG_DFL);
+        signal(SIGINT, SIG_DFL);
+        signal(SIGHUP, SIG_DFL);
+        
+        /* Try to exec a shell */
+        char *shell_argv[] = {"/bin/sh", NULL};
+        execv("/bin/sh", shell_argv);
+        
+        /* If /bin/sh fails, try /bin/bash */
+        char *bash_argv[] = {"/bin/bash", NULL};
+        execv("/bin/bash", bash_argv);
+        
+        /* If all fails, exit */
+        fprintf(stderr, "Failed to spawn emergency console\n");
+        _exit(1);
+    }
+    
+    log_info("Emergency console spawned on /dev/console");
 }
 
 /* Spawn a service */
@@ -354,24 +403,34 @@ int main(int argc, char *argv[]) {
     /* Set up environment */
     setup_environment();
     
-    /* Define services to spawn */
-    char *getty1_argv[] = {"/sbin/getty", "38400", "tty1", NULL};
-    char *getty2_argv[] = {"/sbin/getty", "38400", "tty2", NULL};
-    char *getty3_argv[] = {"/sbin/getty", "38400", "tty3", NULL};
-    char *getty4_argv[] = {"/sbin/getty", "38400", "tty4", NULL};
+    /* Check if getty exists */
+    int has_getty = (access("/sbin/getty", X_OK) == 0);
+    int num_services = 0;
+    service_t services[4];
     
-    service_t services[] = {
-        {"getty-tty1", "/sbin/getty", getty1_argv, 0, 1, 0, 0},
-        {"getty-tty2", "/sbin/getty", getty2_argv, 0, 1, 0, 0},
-        {"getty-tty3", "/sbin/getty", getty3_argv, 0, 1, 0, 0},
-        {"getty-tty4", "/sbin/getty", getty4_argv, 0, 1, 0, 0},
-    };
-    int num_services = sizeof(services) / sizeof(services[0]);
-    
-    /* Spawn initial services */
-    log_info("Spawning services");
-    for (int i = 0; i < num_services; i++) {
-        spawn_service(&services[i]);
+    if (has_getty) {
+        /* Define services to spawn */
+        char *getty1_argv[] = {"/sbin/getty", "38400", "tty1", NULL};
+        char *getty2_argv[] = {"/sbin/getty", "38400", "tty2", NULL};
+        char *getty3_argv[] = {"/sbin/getty", "38400", "tty3", NULL};
+        char *getty4_argv[] = {"/sbin/getty", "38400", "tty4", NULL};
+        
+        services[0] = (service_t){"getty-tty1", "/sbin/getty", getty1_argv, 0, 1, 0, 0};
+        services[1] = (service_t){"getty-tty2", "/sbin/getty", getty2_argv, 0, 1, 0, 0};
+        services[2] = (service_t){"getty-tty3", "/sbin/getty", getty3_argv, 0, 1, 0, 0};
+        services[3] = (service_t){"getty-tty4", "/sbin/getty", getty4_argv, 0, 1, 0, 0};
+        num_services = 4;
+        
+        /* Spawn initial services */
+        log_info("Spawning getty services");
+        for (int i = 0; i < num_services; i++) {
+            spawn_service(&services[i]);
+        }
+    } else {
+        /* Getty not found, spawn emergency console */
+        log_warn("Getty not found at /sbin/getty");
+        log_info("Spawning emergency console on /dev/console");
+        spawn_emergency_console();
     }
     
     log_info("System initialization complete");

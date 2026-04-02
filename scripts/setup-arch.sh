@@ -33,7 +33,8 @@ pacman -S --noconfirm --needed \
     coreutils \
     file \
     rsync \
-    git
+    git \
+    
 
 # ---------------------------------------------------------------------------
 # Cross-compilation prerequisites (GCC needs GMP, MPFR, MPC, ISL)
@@ -113,7 +114,9 @@ pacman -S --noconfirm --needed \
     util-linux \
     grub \
     efibootmgr \
-    mtools
+    mtools \
+    libisoburn \
+    squashfs-tools
 
 # ---------------------------------------------------------------------------
 # Initramfs generator

@@ -54,7 +54,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # Source URLs  (from SOURCES.txt)
 # ---------------------------------------------------------------------------
 SOURCES_LIST=(
-    "https://git.kernel.org/torvalds/t/linux-7.0-rc5.tar.gz"
+    "https://pub.mikofure.org/linux/linux-7.0-rc5.tar.gz"
     "https://mirror.cyberbits.asia/gnu/glibc/glibc-2.43.tar.xz"
     "https://mirror.cyberbits.asia/gnu/gcc/gcc-15.2.0/gcc-15.2.0.tar.xz"
     "https://mirror.cyberbits.asia/gnu/binutils/binutils-2.46.0.tar.xz"
@@ -81,6 +81,7 @@ SOURCES_LIST=(
     "https://ftp.gnu.org/gnu/bison/bison-3.8.2.tar.xz"
     "https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz"
     "https://sourceware.org/elfutils/ftp/0.192/elfutils-0.192.tar.bz2"
+    "https://www.kernel.org/pub/linux/kernel/firmware/linux-firmware-20260309.tar.gz"
 )
 
 # ---------------------------------------------------------------------------
@@ -354,6 +355,22 @@ cmd_fetch() {
             log "  already extracted : $dirname"
         fi
     done
+    
+    # ----------------------------------------------------------------
+    # Extract linux-firmware separately for chroot installation
+    # ----------------------------------------------------------------
+    local fw_archive="linux-firmware-20260309.tar.gz"
+    if [ -f "$MOCHI_SOURCES/$fw_archive" ]; then
+        log ""
+        log "Extracting linux-firmware for chroot installation..."
+        local fw_dir="$MOCHI_SOURCES/linux-firmware-20260309"
+        if [ ! -d "$fw_dir" ]; then
+            tar -xf "$MOCHI_SOURCES/$fw_archive" -C "$MOCHI_SOURCES"
+            log "  extracted : linux-firmware-20260309"
+        else
+            log "  already extracted : linux-firmware-20260309"
+        fi
+    fi
 
     log "==> All sources ready in $MOCHI_SOURCES"
 }
@@ -375,6 +392,8 @@ cmd_rootfs() {
         "$MOCHI_ROOTFS/System/Library/Shared/Documentions/Manuals" \
         "$MOCHI_ROOTFS/System/Library/Configurations/default" \
         "$MOCHI_ROOTFS/System/Library/Kernel/grub" \
+        "$MOCHI_ROOTFS/System/Library/Kernel/Boot/UEFI" \
+        "$MOCHI_ROOTFS/System/Library/Kernel/Firmware" \
         "$MOCHI_ROOTFS/Applications" \
         "$MOCHI_ROOTFS/Library" \
         "$MOCHI_ROOTFS/Users/Administrator" \
@@ -401,6 +420,7 @@ cmd_rootfs() {
     ln -sfn System/Library/Shared/Documentions          "$MOCHI_ROOTFS/System/usr/share/doc" 2>/dev/null || true
     ln -sfn System/Library/Shared/Documentions/Manuals  "$MOCHI_ROOTFS/System/usr/share/man" 2>/dev/null || true
     ln -sfn Users/Administrator                         "$MOCHI_ROOTFS/root"  2>/dev/null || true
+    ln -sfn System/Library/Kernel/Firmware              "$MOCHI_ROOTFS/System/usr/lib/firmware" 2>/dev/null || true
 
     # Permissions
     chmod 1777 "$MOCHI_ROOTFS/tmp"
@@ -538,6 +558,13 @@ _enter_chroot() {
         log "Copying init source to rootfs"
         rm -rf "$MOCHI_ROOTFS/init"
         cp -r "$SCRIPT_DIR/init" "$MOCHI_ROOTFS/init"
+    fi
+    
+    # Copy sysutils source into rootfs for building
+    if [ -d "$SCRIPT_DIR/sysutils" ]; then
+        log "Copying sysutils source to rootfs"
+        rm -rf "$MOCHI_ROOTFS/sysutils"
+        cp -r "$SCRIPT_DIR/sysutils" "$MOCHI_ROOTFS/sysutils"
     fi
 
     # Stage kernel config into sources so it is visible at /sources/mochi.config

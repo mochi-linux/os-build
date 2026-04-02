@@ -120,7 +120,9 @@ apt-get install -y --no-install-recommends \
     grub-efi-amd64-bin \
     grub-pc-bin \
     grub-common \
-    mtools
+    mtools \
+    xorriso \
+    squashfs-tools
 
 # ---------------------------------------------------------------------------
 # Initramfs generators (use dracut or mkinitcpio)
