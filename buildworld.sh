@@ -98,6 +98,70 @@ hdr()  {
     echo "════════════════════════════════════════════════════════════"
 }
 
+# Detect host OS distribution
+detect_os() {
+    if [ -f /etc/os-release ]; then
+        . /etc/os-release
+        echo "$ID"
+    elif [ -f /etc/arch-release ]; then
+        echo "arch"
+    elif [ -f /etc/fedora-release ]; then
+        echo "fedora"
+    elif [ -f /etc/debian_version ]; then
+        echo "debian"
+    else
+        echo "unknown"
+    fi
+}
+
+# Install dependencies based on detected OS
+cmd_deps() {
+    local os_id=$(detect_os)
+    local setup_script=""
+    
+    hdr "Installing Build Dependencies"
+    
+    case "$os_id" in
+        ubuntu|debian|pop)
+            setup_script="$SCRIPT_DIR/scripts/setup-ubuntu.sh"
+            log "Detected: Ubuntu/Debian-based system"
+            ;;
+        arch|manjaro|endeavouros)
+            setup_script="$SCRIPT_DIR/scripts/setup-arch.sh"
+            log "Detected: Arch Linux-based system"
+            ;;
+        fedora|rhel|centos|rocky|almalinux)
+            setup_script="$SCRIPT_DIR/scripts/setup-fedora.sh"
+            log "Detected: Fedora/RHEL-based system"
+            ;;
+        *)
+            log "Unknown OS: $os_id"
+            echo ""
+            echo "Supported distributions:"
+            echo "  - Ubuntu/Debian: sudo bash scripts/setup-ubuntu.sh"
+            echo "  - Arch Linux:    sudo bash scripts/setup-arch.sh"
+            echo "  - Fedora/RHEL:   sudo bash scripts/setup-fedora.sh"
+            echo ""
+            die "Please install dependencies manually for your distribution"
+            ;;
+    esac
+    
+    if [ ! -f "$setup_script" ]; then
+        die "Setup script not found: $setup_script"
+    fi
+    
+    log "Running: $setup_script"
+    
+    if [ "$(id -u)" -eq 0 ]; then
+        bash "$setup_script"
+    else
+        log "Root privileges required for package installation"
+        sudo bash "$setup_script"
+    fi
+    
+    log "Dependencies installed successfully"
+}
+
 require_root() {
     [ "$(id -u)" -eq 0 ] || die "This command requires root (sudo)."
 }
@@ -688,15 +752,14 @@ Options:
   --cluster        Use cluster build mode (icecc distributed compilation)
 
 Commands:
-  fetch            Download and extract all sources
-  rootfs           Create MochiOS rootfs directory layout
-  host [STEP]      Run host toolchain build
-                     steps: headers | binutils | gcc1 | glibc | gcc2 | all
-  chroot [STEP]    Run chroot build  (requires root)
-                     steps: bash | coreutils | system | kernel | grub | all
-  image            Create bootable GPT disk image  (requires root)
-  shell            Enter interactive MochiOS chroot  (requires root)
-  clean            Remove build artifacts (keeps sources)
+  deps             Install build dependencies (auto-detects OS)
+  fetch            Download all source tarballs (using aria2c)
+  rootfs           Create rootfs directory structure
+  host [step]      Build cross-toolchain (headers|binutils|gcc1|glibc|gcc2|all)
+  chroot [step]    Build system in chroot (bash|coreutils|system|kernel|firmware|grub|all)
+  image            Create bootable disk image (GPT + GRUB + EFI)
+  shell            Enter chroot shell
+  clean            Remove build artifacts (keep sources)
   distclean        Remove everything including sources
   populate         Cross-compile bash+coreutils into rootfs; copy glibc libs
   all              Full pipeline: fetch → rootfs → host → populate → chroot → image
@@ -711,6 +774,7 @@ Environment variables:
   BUILD_MODE       Build mode        (default: host, options: host|cluster)
 
 Examples:
+  $0 deps                  # Install build dependencies (first step)
   $0 all                   # Full build (host mode)
   $0 --cluster all         # Full build with icecc cluster
   $0 --host host           # Build entire host toolchain locally
@@ -768,6 +832,7 @@ main() {
     log "  Build mode : $BUILD_MODE"
 
     case "$cmd" in
+        deps)         cmd_deps ;;
         fetch)        cmd_fetch ;;
         rootfs)       cmd_rootfs ;;
         host)         cmd_host "$step" ;;

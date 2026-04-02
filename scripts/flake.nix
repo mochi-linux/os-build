@@ -96,6 +96,7 @@
             ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
             Build Commands:
+              cd ..                           Go to build root
               ./buildworld.sh --help          Show build system help
               ./buildworld.sh fetch           Download all source packages
               ./buildworld.sh --host all      Full build (local compilation)
@@ -114,6 +115,13 @@
 
             Utilities:
               ./umount-all.sh                 Unmount all build bind mounts
+              make -C sysutils                Build system utilities
+              make -C sysutils clean          Clean system utilities
+              
+            System Utilities:
+              launcher                        .app bundle launcher
+              mkappbundle                     .app bundle creator
+              powerctl                        Power management (poweroff/reboot/halt)
               
             Environment:
               MOCHI_BUILD    = ${MOCHI_BUILD:-./buildfs}
@@ -132,6 +140,11 @@
             
             # Ensure icecc is available
             export PATH="${pkgs.icecream}/bin:$PATH"
+            
+            # Change to parent directory (os-build root)
+            if [ -f "../buildworld.sh" ]; then
+              cd ..
+            fi
             
             # Add current directory to PATH for build scripts
             export PATH="$PWD:$PATH"

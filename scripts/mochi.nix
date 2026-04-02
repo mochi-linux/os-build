@@ -53,6 +53,7 @@ pkgs.mkShell {
     ncurses
     openssl
     elfutils
+    kmod
     
     # GRUB dependencies
     grub2
@@ -61,6 +62,7 @@ pkgs.mkShell {
     e2fsprogs
     dosfstools
     parted
+    util-linux
     
     # Distributed compilation (icecc)
     icecream
@@ -69,6 +71,10 @@ pkgs.mkShell {
     rsync
     which
     file
+    gmp
+    mpfr
+    libmpc
+    isl
   ];
 
   shellHook = ''
@@ -106,7 +112,11 @@ pkgs.mkShell {
   # Environment variables for the build
   MOCHI_BUILD = "./buildfs";
   MOCHI_TARGET = "x86_64-mochios-linux-gnu";
+  BUILD_MODE = "host";
   
   # Disable hardening for cross-compilation
   hardeningDisable = [ "all" ];
+  
+  # Allow unfree packages if needed
+  NIXPKGS_ALLOW_UNFREE = "1";
 }
