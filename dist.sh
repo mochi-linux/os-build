@@ -698,6 +698,9 @@ main() {
     
     require_root
     
+    # Ensure dist directory exists
+    mkdir -p "$DIST_DIR"
+    
     # Execute command
     case "$command" in
         tarball)

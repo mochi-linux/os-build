@@ -11,10 +11,13 @@ FEATURES
 --------
 • Full system built from source (GCC, glibc, kernel, utilities)
 • Custom init system (PID 1) written in C
+• Application bundle system (.app) with launcher and creator utilities
 • Distributed compilation support via Icecc
+• Automatic OS detection and dependency installation
 • Multiple distribution formats (tarball, disk image, SquashFS)
 • Bootable UEFI disk images with GRUB
 • Minimal system configuration included
+• Support for Ubuntu/Debian, Arch Linux, and Fedora/RHEL host systems
 
 
 PROJECT STRUCTURE
@@ -46,10 +49,22 @@ mochios/
   scripts/
     setup-ubuntu.sh           Install host deps (Ubuntu/Debian)
     setup-arch.sh             Install host deps (Arch Linux/Manjaro)
+    setup-fedora.sh           Install host deps (Fedora/RHEL/CentOS)
+    flake.nix                 Nix flake for reproducible build environment
+    mochi.nix                 Traditional nix-shell configuration
     host/
       buildsource.sh          HOST cross-toolchain build
     chroot/
       buildsource.sh          CHROOT native package build
+  
+  sysutils/
+    Makefile                  System utilities build configuration
+    powerctl/
+      powerctl.c              Power management utility (poweroff/reboot/halt)
+    launcher/
+      launcher.c              .app bundle launcher
+      mkappbundle.c           .app bundle creator
+      Manifest.yml.example    Example application manifest
 
 
 ROOTFS LAYOUT
@@ -113,8 +128,9 @@ Step 8  CHROOT: system utilities
           • openssl (for crypto support)
           • bison, flex (for kernel build)
           • elfutils (libelf for kernel objtool)
-          • make
+          • make, nano, htop
           • MochiOS init system (custom PID 1)
+          • System utilities (powerctl, launcher, mkappbundle)
 
 Step 9  CHROOT: kernel
         Configure and compile Linux kernel with custom config.
@@ -144,10 +160,14 @@ Host tools required (installed by setup scripts):
 
 QUICK START
 -----------
-  1. Install host dependencies:
+  1. Install host dependencies (auto-detects OS):
 
+       bash buildworld.sh deps
+
+     Or manually:
        Ubuntu/Debian:    sudo bash scripts/setup-ubuntu.sh
        Arch/Manjaro:     sudo bash scripts/setup-arch.sh
+       Fedora/RHEL:      sudo bash scripts/setup-fedora.sh
 
   2. Run the full build:
 
@@ -185,6 +205,34 @@ QUICK START
        make chroot        # chroot build only (sudo)
        make image         # disk image only  (sudo)
        make help          # show all targets
+
+
+APPLICATION BUNDLES
+-------------------
+MochiOS includes a custom application bundle system (.app) for packaging
+and launching applications with proper library paths and environment setup.
+
+  Bundle Structure:
+    MyApp.app/
+      Exec/x86_64/binary    Executable ELF binary
+      Library/              Shared libraries (.so files)
+      Resources/            Application resources
+      Manifest.yml          Application metadata
+
+  Creating a bundle:
+    mkappbundle -n MyApp -e myapp -l libfoo.so -r icons/
+
+  Launching a bundle:
+    launcher /Applications/MyApp.app [args...]
+
+  Bundle information:
+    launcher --info /Applications/MyApp.app
+
+  The launcher automatically sets:
+    • LD_LIBRARY_PATH to include bundle's Library directory
+    • APP_BUNDLE environment variable (bundle path)
+    • APP_RESOURCES environment variable (resources path)
+    • APP_NAME environment variable (application name)
 
 
 BUILD MODES

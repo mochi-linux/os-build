@@ -69,11 +69,14 @@ NOTICE file inside the respective source archive listed in SOURCES.txt.
   Elfutils              0.192       GNU General Public License v3+ /
                                     GNU Lesser General Public License v3+
   MochiOS Init          1.0         MIT License (custom implementation)
+  MochiOS Launcher      1.0         MIT License (custom implementation)
+  MochiOS mkappbundle   1.0         MIT License (custom implementation)
+  MochiOS powerctl      1.0         MIT License (custom implementation)
   Git                   2.39.5      GNU General Public License v2+
   SQLite3               3510300     Public Domain
   UnZip (Info-ZIP)      6.0         Info-ZIP License
   GNU Wget2             2.2.1       GNU General Public License v3+
-  GNU Nano              8.7.1       GNU General Public License v3+
+  GNU Nano              7.2         GNU General Public License v3+
   Htop                  3.4.1       GNU General Public License v2+
   ──────────────────────────────────────────────────────────────────────────
 
