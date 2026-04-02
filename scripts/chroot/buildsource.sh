@@ -549,13 +549,15 @@ build_system() {
         # Build sysutils
         eval make -j"$JOBS" $MAKE_CC
         
-        # Install to /sbin
+        # Install to /sbin and /usr/bin
         install -D -m 755 powerctl/powerctl /sbin/powerctl
         ln -sf powerctl /sbin/poweroff
         ln -sf powerctl /sbin/reboot
         ln -sf powerctl /sbin/halt
+        install -D -m 755 launcher/launcher /usr/bin/launcher
+        install -D -m 755 launcher/mkappbundle /usr/bin/mkappbundle
         
-        log "System utilities installed (powerctl, poweroff, reboot, halt)"
+        log "System utilities installed (powerctl, poweroff, reboot, halt, launcher, mkappbundle)"
         mark_built "sysutils"
     else
         log "Warning: Sysutils source not found at $sysutils_src, skipping"

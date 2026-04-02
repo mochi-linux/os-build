@@ -11,9 +11,9 @@ INSTALL_DIR := /sbin
 SUBDIRS := powerctl
 
 # Targets
-.PHONY: all clean install install-rootfs help $(SUBDIRS)
+.PHONY: all clean install install-rootfs help powerctl launcher mkappbundle
 
-all: $(SUBDIRS)
+all: powerctl launcher mkappbundle
 
 # Build powerctl
 powerctl:
@@ -23,10 +23,28 @@ powerctl:
 		strip powerctl
 	@echo "powerctl built successfully"
 
+# Build launcher
+launcher:
+	@echo "Building launcher..."
+	@cd launcher && \
+		$(CC) $(CFLAGS) -Wno-format-truncation -o launcher launcher.c && \
+		strip launcher
+	@echo "launcher built successfully"
+
+# Build mkappbundle
+mkappbundle:
+	@echo "Building mkappbundle..."
+	@cd launcher && \
+		$(CC) $(CFLAGS) -Wno-format-truncation -o mkappbundle mkappbundle.c && \
+		strip mkappbundle
+	@echo "mkappbundle built successfully"
+
 # Clean all builds
 clean:
 	@echo "Cleaning sysutils..."
 	@rm -f powerctl/powerctl
+	@rm -f launcher/launcher
+	@rm -f launcher/mkappbundle
 	@echo "Clean complete"
 
 # Install to system
@@ -36,6 +54,8 @@ install: all
 	@ln -sf powerctl $(INSTALL_DIR)/poweroff
 	@ln -sf powerctl $(INSTALL_DIR)/reboot
 	@ln -sf powerctl $(INSTALL_DIR)/halt
+	@install -D -m 755 launcher/launcher /usr/bin/launcher
+	@install -D -m 755 launcher/mkappbundle /usr/bin/mkappbundle
 	@echo "Installation complete"
 
 # Install to rootfs (for build system)
@@ -50,6 +70,8 @@ install-rootfs: all
 	@ln -sf powerctl $(ROOTFS)$(INSTALL_DIR)/poweroff
 	@ln -sf powerctl $(ROOTFS)$(INSTALL_DIR)/reboot
 	@ln -sf powerctl $(ROOTFS)$(INSTALL_DIR)/halt
+	@install -D -m 755 launcher/launcher $(ROOTFS)/usr/bin/launcher
+	@install -D -m 755 launcher/mkappbundle $(ROOTFS)/usr/bin/mkappbundle
 	@echo "Installation complete"
 
 # Show help
@@ -72,6 +94,8 @@ help:
 	@echo ""
 	@echo "Utilities:"
 	@echo "  powerctl         Power control (poweroff/reboot/halt)"
+	@echo "  launcher         Application bundle launcher (.app)"
+	@echo "  mkappbundle      Application bundle creator (.app)"
 	@echo ""
 	@echo "Build configuration:"
 	@echo "  CC      = $(CC)"

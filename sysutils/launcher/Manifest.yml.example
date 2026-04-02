@@ -1,0 +1,29 @@
+# MochiOS Application Bundle Manifest
+# This is an example manifest file for .app bundles
+
+# Application metadata
+Name: MyApplication
+Version: 1.0.0
+Description: A sample application for MochiOS
+Architecture: x86_64
+
+# Executable location (relative to bundle root)
+Executable: Exec/x86_64/myapp
+
+# Optional: Additional library paths to add to LD_LIBRARY_PATH
+# Uncomment and modify as needed
+# LD_LIBRARY_PATH: /usr/local/lib:/opt/myapp/lib
+
+# Optional: Environment variables to set when launching
+# Uncomment and modify as needed
+# ENV_VAR_NAME: value
+
+# Optional: Application metadata
+Author: Your Name
+License: MIT
+Homepage: https://example.com
+
+# Optional: Dependencies (informational only)
+Dependencies:
+  - glibc >= 2.43
+  - ncurses >= 6.4
