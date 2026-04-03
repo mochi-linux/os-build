@@ -86,3 +86,7 @@ Thumbs.db
 *.orig
 *.rej
 progress.txt
+
+# python
+__pycache__/
+*.pyc

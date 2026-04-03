@@ -5,7 +5,7 @@
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
-# Environment  (all can be overridden by caller / buildworld.sh)
+# Environment  (all can be overridden by caller / scripts/buildworld.sh)
 # ---------------------------------------------------------------------------
 : "${MOCHI_BUILD:=$PWD/buildfs}"
 : "${MOCHI_SOURCES:=$MOCHI_BUILD/sources}"

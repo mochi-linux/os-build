@@ -1,6 +1,6 @@
 ##############################################################################
 # MochiOS Build System – Makefile
-# Wraps buildworld.sh for convenient make targets.
+# Wraps scripts/buildworld.sh for convenient make targets.
 #
 # Usage:
 #   make              # Full build pipeline
@@ -18,8 +18,9 @@
 ##############################################################################
 
 SHELL      := /usr/bin/env bash
-BUILD      ?= buildworld.sh
+BUILD      ?= scripts/buildworld.sh
 JOBS       ?= $(shell nproc)
+
 
 MOCHI_BUILD   ?= $(CURDIR)/buildfs
 MOCHI_TARGET  ?= x86_64-mochios-linux-gnu

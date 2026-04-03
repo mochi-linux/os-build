@@ -41,6 +41,10 @@ FLEX_VER="2.6.4"
 ELFUTILS_VER="0.192"
 NANO_VER="7.2"
 HTOP_VER="3.4.1"
+PYTHON_VER="3.14.3"
+CMAKE_VER="4.3.1"
+FASTFETCH_VER="2.61.0"
+BTOP_VER="1.4.6"
 
 BOOT_DIR="/System/Library/Kernel"
 
@@ -275,14 +279,14 @@ build_system() {
     # --- Util-linux ---
     if ! skip_if_built "util-linux"; then
     log "  -> Util-linux $UTIL_LINUX_VER"
-    
+
     # Create root user/group if they don't exist (required for mount utility)
     getent group root >/dev/null 2>&1 || groupadd -g 0 root
     getent passwd root >/dev/null 2>&1 || useradd -u 0 -g 0 -d /root -s /bin/bash root
-    
+
     # Create tty group if it doesn't exist (required for wall utility)
     getent group tty >/dev/null 2>&1 || groupadd -g 5 tty
-    
+
     src="$MOCHI_SOURCES/util-linux-$UTIL_LINUX_VER"
     bld="$MOCHI_BUILD/build-util-linux"
     conf_build "$src" "$bld" \
@@ -338,10 +342,10 @@ build_system() {
     src="$MOCHI_SOURCES/perl-$PERL_VER"
     require_src "$src"
     cd "$src"
-    
+
     # Clean any previous build
     [ -f Makefile ] && make distclean 2>/dev/null || true
-    
+
     # Perl requires in-tree build
     ./Configure -des \
         -Dprefix=/usr \
@@ -403,10 +407,10 @@ build_system() {
     src="$MOCHI_SOURCES/openssl-$OPENSSL_VER"
     require_src "$src"
     cd "$src"
-    
+
     # Clean any previous build
     [ -f Makefile ] && make distclean 2>/dev/null || true
-    
+
     # OpenSSL requires in-tree build with custom Configure script
     ./Configure linux-x86_64 \
         --prefix=/usr \
@@ -507,25 +511,81 @@ build_system() {
     mark_built "htop"
     fi
 
+    # --- CMake ---
+    if ! skip_if_built "cmake"; then
+    log "  -> CMake $CMAKE_VER"
+    src="$MOCHI_SOURCES/cmake-$CMAKE_VER"
+    bld="$MOCHI_BUILD/build-cmake"
+
+    mkdir -p "$bld"
+    cd "$bld"
+    "$src/bootstrap" --prefix=/usr --parallel="$JOBS"
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    mark_built "cmake"
+    fi
+
+    # --- Fastfetch ---
+    if ! skip_if_built "fastfetch"; then
+    log "  -> Fastfetch $FASTFETCH_VER"
+    src="$MOCHI_SOURCES/fastfetch-$FASTFETCH_VER"
+    bld="$MOCHI_BUILD/build-fastfetch"
+    mkdir -p "$bld"
+    cd "$bld"
+    cmake "$src" \
+        -DCMAKE_INSTALL_PREFIX=/usr \
+        -DCMAKE_BUILD_TYPE=Release
+    eval make -j"$JOBS"
+    make install
+    mark_built "fastfetch"
+    fi
+
+    # --- Btop ---
+    if ! skip_if_built "btop"; then
+    log "  -> Btop $BTOP_VER"
+    src="$MOCHI_SOURCES/btop-$BTOP_VER"
+    cd "$src"
+    eval make -j"$JOBS" $MAKE_CC PREFIX=/usr
+    make install PREFIX=/usr
+    mark_built "btop"
+    fi
+
+    # --- Python ---
+    if ! skip_if_built "python"; then
+    log "  -> Python $PYTHON_VER"
+    src="$MOCHI_SOURCES/Python-$PYTHON_VER"
+    bld="$MOCHI_BUILD/build-python"
+
+    conf_build "$src" "$bld" \
+        --prefix=/usr \
+        --enable-shared \
+        --without-ensurepip
+
+    cd "$bld"
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    mark_built "python"
+    fi
+
     # --- Init System ---
     if ! skip_if_built "init"; then
     log "  -> MochiOS Init"
-    
+
     # Copy init source to build directory
-    local init_src="/scripts/../init"
+    local init_src="/init"
     local init_bld="$MOCHI_BUILD/build-init"
-    
+
     if [ -d "$init_src" ]; then
         rm -rf "$init_bld"
         cp -r "$init_src" "$init_bld"
         cd "$init_bld"
-        
+
         # Build init
         eval make -j"$JOBS" $MAKE_CC
-        
+
         # Install to /sbin/init
         install -D -m 755 build/init /sbin/init
-        
+
         log "Init system installed to /sbin/init"
         mark_built "init"
     else
@@ -536,19 +596,19 @@ build_system() {
     # --- System Utilities (powerctl) ---
     if ! skip_if_built "sysutils"; then
     log "  -> System Utilities"
-    
+
     # Copy sysutils source to build directory
-    local sysutils_src="/scripts/../sysutils"
+    local sysutils_src="/sysutils"
     local sysutils_bld="$MOCHI_BUILD/build-sysutils"
-    
+
     if [ -d "$sysutils_src" ]; then
         rm -rf "$sysutils_bld"
         cp -r "$sysutils_src" "$sysutils_bld"
         cd "$sysutils_bld"
-        
+
         # Build sysutils
         eval make -j"$JOBS" $MAKE_CC
-        
+
         # Install to /sbin and /usr/bin
         install -D -m 755 powerctl/powerctl /sbin/powerctl
         ln -sf powerctl /sbin/poweroff
@@ -556,7 +616,7 @@ build_system() {
         ln -sf powerctl /sbin/halt
         install -D -m 755 launcher/launcher /usr/bin/launcher
         install -D -m 755 launcher/mkappbundle /usr/bin/mkappbundle
-        
+
         log "System utilities installed (powerctl, poweroff, reboot, halt, launcher, mkappbundle)"
         mark_built "sysutils"
     else
@@ -615,29 +675,29 @@ build_kernel() {
 build_firmware() {
     skip_if_built "firmware" && return 0
     hdr "[5/6] Linux Firmware"
-    
+
     local fw_src="$MOCHI_SOURCES/linux-firmware-20260309"
     local fw_dir="/System/Library/Kernel/Firmware"
-    
+
     if [ ! -d "$fw_src" ]; then
         log "Warning: Linux firmware source not found at $fw_src"
-        log "Make sure to run 'buildworld.sh fetch' first to extract firmware"
+        log "Make sure to run 'scripts/buildworld.sh fetch' first to extract firmware"
         return 0
     fi
-    
+
     # Create firmware directory
     mkdir -p "$fw_dir"
-    
+
     log "Installing all firmware from $fw_src..."
     log "This may take a few moments..."
-    
+
     # Copy all firmware files and directories
     cp -r "$fw_src"/* "$fw_dir/"
-    
+
     # Count installed files
     local fw_count=$(find "$fw_dir" -type f | wc -l)
     local fw_size=$(du -sh "$fw_dir" | cut -f1)
-    
+
     log "Firmware installed to $fw_dir"
     log "  Files: $fw_count"
     log "  Size: $fw_size"
@@ -651,7 +711,7 @@ build_grub() {
     hdr "[6/6] GRUB Bootloader (SKIPPED - optional)"
     log "  -> GRUB configuration (SKIPPED - bootloader can be configured manually)"
     return 0
-    
+
     skip_if_built "grub" && return 0
 
     mkdir -p "$BOOT_DIR/grub"
@@ -707,7 +767,7 @@ Steps (run in order, inside MochiOS chroot):
   system     Build and install system utilities
                (ncurses, zlib, xz, gzip, tar, findutils,
                 util-linux, inetutils, kmod, make, nano, htop,
-                init, sysutils)
+                cmake, fastfetch, btop, python, init, sysutils)
   kernel     Build and install Linux kernel + modules
   firmware   Install Linux firmware (i915, amdgpu, CPU microcode)
   grub       Write GRUB configuration

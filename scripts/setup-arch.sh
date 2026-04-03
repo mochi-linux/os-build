@@ -19,5 +19,5 @@ pacman -Syu --noconfirm --needed \
 
 echo "============================================================"
 echo "  MochiOS Host Ready."
-echo "  Run 'bash buildworld.sh all' to start the build."
+echo "  Run 'bash scripts/buildworld.sh all' to start the build."
 echo "============================================================"

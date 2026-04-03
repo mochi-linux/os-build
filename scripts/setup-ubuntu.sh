@@ -23,5 +23,5 @@ apt-get install -y --no-install-recommends \
 
 echo "============================================================"
 echo "  MochiOS Host Ready (Ubuntu)."
-echo "  Run 'bash buildworld.sh all' to start the build."
+echo "  Run 'bash scripts/buildworld.sh all' to start the build."
 echo "============================================================"

@@ -23,12 +23,12 @@ FEATURES
 PROJECT STRUCTURE
 -----------------
 mochios/
-  buildworld.sh               Main build orchestrator
+  scripts/buildworld.sh       Main build orchestrator
   dist.sh                     Distribution creator (tarball/image/squashfs)
   umount-all.sh               Cleanup script for mounts and loop devices
   Makefile                    Convenience make targets
   SOURCES.txt                 Upstream package URLs and versions
-  
+
   config/
     mochi.config              Linux kernel configuration
     etc/                      System configuration files
@@ -40,12 +40,12 @@ mochios/
       os-release              OS identification
       inittab                 Init configuration
       nsswitch.conf           Name service switch config
-  
+
   init/
     Makefile                  Init system build configuration
     src/
       init.c                  MochiOS init implementation (PID 1)
-  
+
   scripts/
     setup-ubuntu.sh           Install host deps (Ubuntu/Debian)
     setup-arch.sh             Install host deps (Arch Linux/Manjaro)
@@ -56,7 +56,7 @@ mochios/
       buildsource.sh          HOST cross-toolchain build
     chroot/
       buildsource.sh          CHROOT native package build
-  
+
   sysutils/
     Makefile                  System utilities build configuration
     powerctl/
@@ -162,7 +162,7 @@ QUICK START
 -----------
   1. Install host dependencies (auto-detects OS):
 
-       bash buildworld.sh deps
+       bash scripts/buildworld.sh deps
 
      Or manually:
        Ubuntu/Debian:    sudo bash scripts/setup-ubuntu.sh
@@ -171,14 +171,14 @@ QUICK START
 
   2. Run the full build:
 
-       bash buildworld.sh all
+       bash scripts/buildworld.sh all
 
      Or step by step:
 
-       bash buildworld.sh fetch        # Download all source packages
-       bash buildworld.sh rootfs       # Create rootfs directory structure
-       bash buildworld.sh host         # Build cross-compilation toolchain
-       sudo bash buildworld.sh chroot  # Build system in chroot environment
+       bash scripts/buildworld.sh fetch        # Download all source packages
+       bash scripts/buildworld.sh rootfs       # Create rootfs directory structure
+       bash scripts/buildworld.sh host         # Build cross-compilation toolchain
+       sudo bash scripts/buildworld.sh chroot  # Build system in chroot environment
 
   3. Create distribution artifacts:
 
@@ -243,8 +243,8 @@ MochiOS supports different build modes for compilation:
   --cluster        Distributed build via Icecc
 
   Example:
-    bash buildworld.sh --cluster host    # Build toolchain with Icecc
-    sudo bash buildworld.sh --cluster chroot
+    bash scripts/buildworld.sh --cluster host    # Build toolchain with Icecc
+    sudo bash scripts/buildworld.sh --cluster chroot
 
 
 ENVIRONMENT VARIABLES
@@ -260,7 +260,7 @@ ENVIRONMENT VARIABLES
   DIST_VERSION     Distribution version  (default: YYYYMMDD)
 
   Example:
-    MOCHI_BUILD=/data/mochi JOBS=16 bash buildworld.sh host
+    MOCHI_BUILD=/data/mochi JOBS=16 bash scripts/buildworld.sh host
     IMAGE_SIZE=8G sudo bash dist.sh image
 
 

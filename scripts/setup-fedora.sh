@@ -24,5 +24,5 @@ dnf install -y \
 
 echo "============================================================"
 echo "  MochiOS Host Ready (Fedora)."
-echo "  Run 'bash buildworld.sh all' to start the build."
+echo "  Run 'bash scripts/buildworld.sh all' to start the build."
 echo "============================================================"
