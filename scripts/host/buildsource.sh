@@ -291,6 +291,14 @@ build_gcc_stage2() {
     make -j"$JOBS" CC="$CC" CXX="$CXX"
     make install
 
+    # Install target libraries (libstdc++, libgcc, etc.) to sysroot
+    mkdir -p "$MOCHI_SYSROOT/usr/lib"
+    if [ -d "$MOCHI_CROSS/$MOCHI_TARGET/lib64" ]; then
+        cp -a "$MOCHI_CROSS/$MOCHI_TARGET/lib64/"* "$MOCHI_SYSROOT/usr/lib/"
+    elif [ -d "$MOCHI_CROSS/$MOCHI_TARGET/lib" ]; then
+        cp -a "$MOCHI_CROSS/$MOCHI_TARGET/lib/"* "$MOCHI_SYSROOT/usr/lib/"
+    fi
+
     log "GCC Stage 2 installed → $MOCHI_CROSS"
 }
 

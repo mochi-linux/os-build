@@ -519,7 +519,7 @@ build_system() {
 
     mkdir -p "$bld"
     cd "$bld"
-    "$src/bootstrap" --prefix=/usr --parallel="$JOBS"
+    "$src/bootstrap" --prefix=/usr --parallel="$JOBS" -- -DBUILD_CursesDialog=OFF
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "cmake"

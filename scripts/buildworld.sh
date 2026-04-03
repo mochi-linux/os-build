@@ -488,13 +488,18 @@ cmd_rootfs() {
     ln -sfn System/usr/bin                              "$MOCHI_ROOTFS/bin"   2>/dev/null || true
     ln -sfn System/usr/sbin                             "$MOCHI_ROOTFS/sbin"  2>/dev/null || true
     ln -sfn System/usr                                  "$MOCHI_ROOTFS/usr"   2>/dev/null || true
-    ln -sfn System/usr/lib                                  "$MOCHI_ROOTFS/lib"   2>/dev/null || true
-    ln -sfn System/usr/lib64                                "$MOCHI_ROOTFS/lib64" 2>/dev/null || true
+    ln -sfn System/usr/lib                              "$MOCHI_ROOTFS/lib"   2>/dev/null || true
+    ln -sfn System/usr/lib64                            "$MOCHI_ROOTFS/lib64" 2>/dev/null || true
     ln -sfn System/Library/Configurations               "$MOCHI_ROOTFS/etc"   2>/dev/null || true
-    ln -sfn System/Library/Shared/Documentions          "$MOCHI_ROOTFS/System/usr/share/doc" 2>/dev/null || true
-    ln -sfn System/Library/Shared/Documentions/Manuals  "$MOCHI_ROOTFS/System/usr/share/man" 2>/dev/null || true
     ln -sfn Users/Administrator                         "$MOCHI_ROOTFS/root"  2>/dev/null || true
-    ln -sfn System/Library/Kernel/Firmware              "$MOCHI_ROOTFS/System/usr/lib/firmware" 2>/dev/null || true
+
+    # System/usr/share symlinks
+    mkdir -p "$MOCHI_ROOTFS/System/usr/share"
+    ln -sfn ../../Library/Shared/Documentions           "$MOCHI_ROOTFS/System/usr/share/doc" 2>/dev/null || true
+    ln -sfn ../../Library/Shared/Documentions/Manuals   "$MOCHI_ROOTFS/System/usr/share/man" 2>/dev/null || true
+
+    # System/usr/lib symlinks
+    ln -sfn ../../Library/Kernel/Firmware               "$MOCHI_ROOTFS/System/usr/lib/firmware" 2>/dev/null || true
 
     # Permissions
     chmod 1777 "$MOCHI_ROOTFS/tmp"

@@ -24,7 +24,7 @@ PROJECT STRUCTURE
 -----------------
 mochios/
   scripts/buildworld.sh       Main build orchestrator
-  dist.sh                     Distribution creator (tarball/image/squashfs)
+  scripts/dist.sh             Distribution creator (tarball/image/squashfs)
   umount-all.sh               Cleanup script for mounts and loop devices
   Makefile                    Convenience make targets
   SOURCES.txt                 Upstream package URLs and versions
@@ -182,10 +182,10 @@ QUICK START
 
   3. Create distribution artifacts:
 
-       sudo bash dist.sh image         # Create bootable disk image
-       sudo bash dist.sh squashfs      # Create SquashFS image
-       sudo bash dist.sh tarball       # Create compressed tarball
-       sudo bash dist.sh all           # Create all formats
+       sudo bash scripts/dist.sh image         # Create bootable disk image
+       sudo bash scripts/dist.sh squashfs      # Create SquashFS image
+       sudo bash scripts/dist.sh tarball       # Create compressed tarball
+       sudo bash scripts/dist.sh all           # Create all formats
 
   4. Test in QEMU:
 
@@ -261,7 +261,7 @@ ENVIRONMENT VARIABLES
 
   Example:
     MOCHI_BUILD=/data/mochi JOBS=16 bash scripts/buildworld.sh host
-    IMAGE_SIZE=8G sudo bash dist.sh image
+    IMAGE_SIZE=8G sudo bash scripts/dist.sh image
 
 
 TESTING THE IMAGE

@@ -4,7 +4,7 @@
 
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 : "${MOCHI_BUILD:=$SCRIPT_DIR/buildfs}"
 : "${MOCHI_ROOTFS:=$MOCHI_BUILD/rootfs}"
 : "${DIST_DIR:=$SCRIPT_DIR/dist}"
@@ -223,165 +223,30 @@ create_bootable_image() {
     hdr "Creating Bootable Disk Image"
 
     local image_path="$DIST_DIR/$IMAGE_NAME"
-    local loop_dev=""
-    local efi_part=""
-    local root_part=""
-    local mount_point="$MOCHI_BUILD/image-mount"
 
     log "Image: $image_path"
-    log "Size: $IMAGE_SIZE"
 
-    # Create sparse image file
-    log "Creating disk image..."
-    dd if=/dev/zero of="$image_path" bs=1 count=0 seek="$IMAGE_SIZE" 2>/dev/null
-
-    # Create partition table
-    log "Creating GPT partition table..."
-    parted -s "$image_path" mklabel gpt
-    parted -s "$image_path" mkpart ESP fat32 1MiB 513MiB
-    parted -s "$image_path" set 1 esp on
-    parted -s "$image_path" mkpart primary ext4 513MiB 100%
-
-    # Setup loop device
-    log "Setting up loop device..."
-    loop_dev=$(losetup -fP --show "$image_path")
-    log "Loop device: $loop_dev"
-
-    # Wait for partition devices
-    sleep 1
-    partprobe "$loop_dev" 2>/dev/null || true
-    sleep 1
-
-    efi_part="${loop_dev}p1"
-    root_part="${loop_dev}p2"
-
-    # Format partitions
-    log "Formatting EFI partition..."
-    mkfs.vfat -F 32 -n MOCHIOS_EFI "$efi_part"
-
-    log "Formatting root partition..."
-    mkfs.ext4 -L MOCHIOS_ROOT "$root_part"
-
-    # Get UUIDs
-    local efi_uuid=$(blkid -s UUID -o value "$efi_part")
-    local root_uuid=$(blkid -s UUID -o value "$root_part")
-
-    log "EFI UUID: $efi_uuid"
-    log "Root UUID: $root_uuid"
-
-    # Mount partitions
-    log "Mounting partitions..."
-    mkdir -p "$mount_point"
-    mount "$root_part" "$mount_point"
-
-    # Copy rootfs first (excluding boot directory and build artifacts)
-    log "Copying rootfs to image..."
-    rsync -aHAX --info=progress2 \
-        --exclude='/System/Library/Kernel/Boot/UEFI/*' \
-        --exclude='/build' \
-        --exclude='/sources' \
-        --exclude='/cross' \
-        --exclude='/host-bin' \
-        --exclude='/host-lib64' \
-        --exclude='/host-usrlib' \
-        --exclude='/init' \
-        --exclude='/scripts' \
-        --exclude='/.buildstate' \
-        --exclude='/lost+found' \
-        "$MOCHI_ROOTFS/" "$mount_point/"
-
-    # Handle boot directory specially
-    log "Setting up boot directory..."
-    rm -rf "$mount_point/System/Library/Kernel/Boot"  # Remove any existing boot symlink/dir
-    mkdir -p "$mount_point/System/Library/Kernel/Boot/UEFI"
-    mount "$efi_part" "$mount_point/System/Library/Kernel/Boot/UEFI"
-
-    # Update fstab with UUIDs
-    log "Updating fstab with partition UUIDs..."
-    cat > "$mount_point/System/Library/Configurations/fstab" << EOF
-# /etc/fstab: static file system information
-#
-# <file system>        <mount point>   <type>  <options>       <dump>  <pass>
-
-# Root filesystem
-/dev/sda2        /               ext4    defaults        1       1
-
-# EFI System Partition
-/dev/sda1         /System/Library/Kernel/Boot/UEFI       vfat    defaults        0       2
-
-# Temporary filesystems
-tmpfs                  /tmp            tmpfs   defaults,nodev,nosuid   0       0
-tmpfs                  /run            tmpfs   defaults,nodev,nosuid   0       0
-EOF
-
-    # Install GRUB
-    log "Installing GRUB bootloader..."
-
-    # Create GRUB directory
-    mkdir -p "$mount_point/System/Library/Kernel/Boot/UEFI/EFI/BOOT"
-    mkdir -p "$mount_point/System/Library/Kernel/grub"
-
-    # Install GRUB to EFI partition
-    if command -v grub-install >/dev/null 2>&1; then
-        grub-install --target=x86_64-efi \
-                     --efi-directory="$mount_point/System/Library/Kernel/Boot/UEFI" \
-                     --boot-directory="$mount_point/System/Library/Kernel" \
-                     --removable \
-                     --no-nvram \
-                     "$loop_dev" || log "Warning: GRUB installation failed, creating manual config"
+    # Check if IMAGE_SIZE has a suffix (like G or M)
+    local img_size_mb=4096
+    if [[ "$IMAGE_SIZE" == *G ]]; then
+        local g_val="${IMAGE_SIZE%G}"
+        img_size_mb=$((g_val * 1024))
+    elif [[ "$IMAGE_SIZE" == *M ]]; then
+        img_size_mb="${IMAGE_SIZE%M}"
     else
-        log "Warning: grub-install not found, creating manual GRUB config"
+        # Fallback if no suffix or something else
+        img_size_mb=4096
     fi
 
-    # Create GRUB configuration
-    log "Creating GRUB configuration..."
-    cat > "$mount_point/System/Library/Kernel/grub/grub.cfg" << EOF
-set default=0
-set timeout=5
+    log "Size: $IMAGE_SIZE (${img_size_mb} MB)"
 
-# Load all possible video drivers for HW and VM
-insmod part_gpt
-insmod fat
-insmod ext2
-insmod all_video
-insmod gfxterm
+    export MOCHI_IMAGE="$image_path"
+    export IMG_SIZE_MB="$img_size_mb"
 
-# Setup the graphical terminal for UEFI GOP support
-if loadfont /boot/grub/fonts/unicode.pf2 ; then
-    set gfxmode=auto
-    terminal_output gfxterm
-fi
-
-# Ensure the kernel inherits the video buffer from GRUB
-set gfxpayload=keep
-
-menuentry "MochiOS" {
-    # Search for the UUID instead of hardcoding /dev/sda2
-    # This prevents the "Black Screen" if HW labels the drive differently
-    search --no-floppy --file --set=root /System/Library/Kernel/vmlinuz
-
-    # Adding 'earlyprintk' and 'ignore_loglevel' helps debug HW black screens
-    linux /System/Library/Kernel/vmlinuz root=/dev/sda2 rw loglevel=7 earlyprintk=efi
-}
-EOF
-
-    # Sync and unmount
-    log "Syncing filesystems..."
-    sync
-
-    log "Unmounting partitions..."
-    umount "$mount_point/System/Library/Kernel/Boot/UEFI"
-    umount "$mount_point"
-
-    # Detach loop device
-    log "Detaching loop device..."
-    losetup -d "$loop_dev"
-
-    # Clean up mount point
-    rmdir "$mount_point" 2>/dev/null || true
+    bash "$SCRIPT_DIR/host/createimage.sh"
 
     # Get final image size
-    local img_size=$(du -h "$image_path" | cut -f1)
+    local final_img_size=$(du -h "$image_path" | cut -f1)
 
     # Create checksum
     log "Generating checksum..."
@@ -390,9 +255,7 @@ EOF
     hdr "Bootable Image Created Successfully"
     log ""
     log "Image: $image_path"
-    log "Size: $img_size"
-    log "EFI UUID: $efi_uuid"
-    log "Root UUID: $root_uuid"
+    log "Size: $final_img_size"
     log "Checksum: $DIST_DIR/$IMAGE_NAME.sha256"
     log ""
     log "To write to USB/disk:"
@@ -629,13 +492,13 @@ Options:
   --help            Show this help message
 
 Examples:
-  sudo ./dist.sh tarball
-  sudo ./dist.sh image
-  sudo ./dist.sh squashfs
-  sudo ./dist.sh iso
-  sudo ./dist.sh all
-  sudo ./dist.sh image --size 8G --version 1.0.0
-  sudo ./dist.sh tarball --output /tmp/dist
+  sudo scripts/dist.sh tarball
+  sudo scripts/dist.sh image
+  sudo scripts/dist.sh squashfs
+  sudo scripts/dist.sh iso
+  sudo scripts/dist.sh all
+  sudo scripts/dist.sh image --size 8G --version 1.0.0
+  sudo scripts/dist.sh tarball --output /tmp/dist
 
 Environment Variables:
   MOCHI_BUILD       Build directory (default: ./buildfs)
