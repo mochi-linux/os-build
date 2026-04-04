@@ -1,11 +1,8 @@
 #!/usr/bin/env bash
 # MochiOS - Chroot Build Script
-# Build order: bash → coreutils → system → kernel → grub
 #
-# Designed to run INSIDE the MochiOS chroot environment where:
-#   /          = rootfs
-#   /sources   = host sources directory (bind-mounted)
-#   /build     = temporary build directory (bind-mounted)
+# Designed to run INSIDE the MochiOS chroot environment.
+# Build order: Toolchain (Native) → Bash → Coreutils → System → Kernel
 
 set -euo pipefail
 
@@ -15,10 +12,17 @@ set -euo pipefail
 : "${MOCHI_SOURCES:=/sources}"
 : "${MOCHI_BUILD:=/build}"
 : "${JOBS:=$(nproc)}"
-: "${BUILD_MODE:=host}"  # host or cluster
+: "${BUILD_MODE:=host}"
 
-# Package versions (mirror SOURCES.txt)
+# Package versions
 LINUX_VER="7.0-rc5"
+BINUTILS_VER="2.46.0"
+GCC_VER="15.2.0"
+ZSTD_VER="1.5.6"
+GMP_VER="6.3.0"
+MPFR_VER="4.2.1"
+MPC_VER="1.3.1"
+ISL_VER="0.27"
 BASH_VER="5.3"
 COREUTILS_VER="9.10"
 UTIL_LINUX_VER="2.40"
@@ -64,13 +68,12 @@ setup_build_mode() {
                 die "icecc not found. Install icecc for cluster builds."
             fi
             log "Build mode: CLUSTER (icecc distributed build)"
-            log "  icecc version: $(icecc --version 2>&1 | head -n1)"
             MAKE_CC="CC=\"icecc gcc\""
             CONFIGURE_CC="CC=\"icecc gcc\""
             KERNEL_CC="CC=\"icecc gcc\""
             ;;
         *)
-            die "Unknown BUILD_MODE: $BUILD_MODE (use 'host' or 'cluster')"
+            die "Unknown BUILD_MODE: $BUILD_MODE"
             ;;
     esac
 }
@@ -91,25 +94,21 @@ require_src() {
     [ -d "$1" ] || die "Source directory not found: $1"
 }
 
-# Build state tracking
 STATE_DIR="$MOCHI_BUILD/.buildstate"
 mkdir -p "$STATE_DIR"
 
 mark_built() {
-    local component="$1"
-    touch "$STATE_DIR/chroot-${component}.done"
-    log "✓ $component build completed"
+    touch "$STATE_DIR/chroot-$1.done"
+    log "✓ $1 build completed"
 }
 
 is_built() {
-    local component="$1"
-    [ -f "$STATE_DIR/chroot-${component}.done" ]
+    [ -f "$STATE_DIR/chroot-$1.done" ]
 }
 
 skip_if_built() {
-    local component="$1"
-    if is_built "$component"; then
-        log "⊳ Skipping $component (already built)"
+    if is_built "$1"; then
+        log "⊳ Skipping $1 (already built)"
         return 0
     fi
     return 1
@@ -125,87 +124,73 @@ conf_build() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 1 – Bash
+# Step 1 – Native Toolchain & Base Libraries
 # ---------------------------------------------------------------------------
-build_bash() {
-    skip_if_built "bash" && return 0
-    hdr "[1/5] Bash $BASH_VER"
-    local src="$MOCHI_SOURCES/bash-$BASH_VER"
-    local bld="$MOCHI_BUILD/build-bash"
+build_toolchain() {
+    hdr "[1/6] Native Toolchain & Base Libraries"
 
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --without-bash-malloc \
-        --docdir=/usr/share/doc/bash
-
+    # --- GMP ---
+    if ! skip_if_built "gmp"; then
+    log "  -> GMP $GMP_VER"
+    local src="$MOCHI_SOURCES/gmp-$GMP_VER"
+    local bld="$MOCHI_BUILD/build-gmp"
+    conf_build "$src" "$bld" --prefix=/usr --enable-cxx --disable-static
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "gmp"
+    fi
 
-    ln -sfn bash /usr/bin/sh
-
-    log "Bash installed → /usr/bin/bash, /usr/bin/sh"
-    mark_built "bash"
-}
-
-# ---------------------------------------------------------------------------
-# Step 2 – Coreutils
-# ---------------------------------------------------------------------------
-build_coreutils() {
-    skip_if_built "coreutils" && return 0
-    hdr "[2/5] Coreutils $COREUTILS_VER"
-    local src="$MOCHI_SOURCES/coreutils-$COREUTILS_VER"
-    local bld="$MOCHI_BUILD/build-coreutils"
-
-    FORCE_UNSAFE_CONFIGURE=1 \
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --enable-no-install-program=kill,uptime \
-        --docdir=/usr/share/doc/coreutils
-
+    # --- MPFR ---
+    if ! skip_if_built "mpfr"; then
+    log "  -> MPFR $MPFR_VER"
+    src="$MOCHI_SOURCES/mpfr-$MPFR_VER"
+    bld="$MOCHI_BUILD/build-mpfr"
+    conf_build "$src" "$bld" --prefix=/usr --disable-static
     eval make -j"$JOBS" $MAKE_CC
     make install
+    mark_built "mpfr"
+    fi
 
-    log "Coreutils installed → /usr/bin"
-    mark_built "coreutils"
-}
+    # --- MPC ---
+    if ! skip_if_built "mpc"; then
+    log "  -> MPC $MPC_VER"
+    src="$MOCHI_SOURCES/mpc-$MPC_VER"
+    bld="$MOCHI_BUILD/build-mpc"
+    conf_build "$src" "$bld" --prefix=/usr --disable-static
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    mark_built "mpc"
+    fi
 
-# ---------------------------------------------------------------------------
-# Step 3 – System Utilities
-#   ncurses → zlib → xz → gzip → tar → findutils →
-#   util-linux → inetutils → perl → autoconf → kmod → make
-# ---------------------------------------------------------------------------
-build_system() {
-    hdr "[3/5] System Utilities"
+    # --- ISL ---
+    if ! skip_if_built "isl"; then
+    log "  -> ISL $ISL_VER"
+    src="$MOCHI_SOURCES/isl-$ISL_VER"
+    bld="$MOCHI_BUILD/build-isl"
+    conf_build "$src" "$bld" --prefix=/usr --disable-static
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    mark_built "isl"
+    fi
 
     # --- Ncurses ---
     if ! skip_if_built "ncurses"; then
     log "  -> Ncurses $NCURSES_VER"
-    local src bld
     src="$MOCHI_SOURCES/ncurses-$NCURSES_VER"
     bld="$MOCHI_BUILD/build-ncurses"
     conf_build "$src" "$bld" \
         --prefix=/usr \
-        --mandir=/usr/share/man \
         --with-shared \
         --enable-widec \
         --without-debug \
-        --without-normal \
-        --without-cxx \
-        --without-cxx-binding \
         --enable-pc-files \
         --with-pkg-config-libdir=/usr/lib/pkgconfig
     eval make -j"$JOBS" $MAKE_CC
     make install
-    for hdr in curses.h ncurses.h term.h termcap.h; do
-        if [ -e "/usr/include/ncursesw/$hdr" ] && [ ! -e "/usr/include/$hdr" ]; then
-            ln -sfn "ncursesw/$hdr" "/usr/include/$hdr" 2>/dev/null || true
-        fi
-    done
-    # Ensure libncursesw → libncurses compat links
     for lib in ncurses form panel menu; do
-        ln -sfn "lib${lib}w.so" "/usr/lib/lib${lib}.so" 2>/dev/null || true
+        ln -sfn "lib${lib}w.so" "/usr/lib/lib${lib}.so"
     done
-    ln -sfn libncursesw.so /usr/lib/libcurses.so 2>/dev/null || true
+    ln -sfn libncursesw.so /usr/lib/libcurses.so
     mark_built "ncurses"
     fi
 
@@ -223,21 +208,111 @@ build_system() {
     mark_built "zlib"
     fi
 
-    # --- XZ Utils ---
-    if ! skip_if_built "xz"; then
-    log "  -> XZ Utils $XZ_VER"
-    src="$MOCHI_SOURCES/xz-$XZ_VER"
-    bld="$MOCHI_BUILD/build-xz"
+    # --- Zstd ---
+    if ! skip_if_built "zstd"; then
+    log "  -> Zstd $ZSTD_VER"
+    src="$MOCHI_SOURCES/zstd-$ZSTD_VER"
+    require_src "$src"
+    cd "$src"
+    eval make -j"$JOBS" $MAKE_CC
+    make install PREFIX=/usr
+    mark_built "zstd"
+    fi
+
+    # --- Binutils ---
+    if ! skip_if_built "binutils"; then
+    log "  -> Binutils $BINUTILS_VER"
+    src="$MOCHI_SOURCES/binutils-$BINUTILS_VER"
+    bld="$MOCHI_BUILD/build-binutils-native"
     conf_build "$src" "$bld" \
         --prefix=/usr \
-        --disable-static \
-        --docdir=/usr/share/doc/xz
+        --with-sysroot=/ \
+        --enable-gold \
+        --enable-ld=default \
+        --enable-plugins \
+        --enable-shared \
+        --disable-werror \
+        --with-system-zlib \
+        --with-zstd
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    mark_built "binutils"
+    fi
+
+    # --- GCC ---
+    if ! skip_if_built "gcc"; then
+    log "  -> GCC $GCC_VER"
+    src="$MOCHI_SOURCES/gcc-$GCC_VER"
+    bld="$MOCHI_BUILD/build-gcc-native"
+    conf_build "$src" "$bld" \
+        --prefix=/usr \
+        --with-sysroot=/ \
+        --with-native-system-header-dir=/usr/include \
+        --enable-languages=c,c++ \
+        --enable-default-pie \
+        --enable-default-ssp \
+        --disable-multilib \
+        --disable-bootstrap \
+        --disable-nls \
+        --with-system-zlib \
+        --with-zstd
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    ln -sfn gcc /usr/bin/cc
+    mark_built "gcc"
+    fi
+}
+
+# ---------------------------------------------------------------------------
+# Step 2 – Bash
+# ---------------------------------------------------------------------------
+build_bash() {
+    skip_if_built "bash" && return 0
+    hdr "[2/6] Bash $BASH_VER"
+    local src="$MOCHI_SOURCES/bash-$BASH_VER"
+    local bld="$MOCHI_BUILD/build-bash"
+    conf_build "$src" "$bld" \
+        --prefix=/usr \
+        --without-bash-malloc
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    ln -sfn bash /usr/bin/sh
+    mark_built "bash"
+}
+
+# ---------------------------------------------------------------------------
+# Step 3 – Coreutils
+# ---------------------------------------------------------------------------
+build_coreutils() {
+    skip_if_built "coreutils" && return 0
+    hdr "[3/6] Coreutils $COREUTILS_VER"
+    local src="$MOCHI_SOURCES/coreutils-$COREUTILS_VER"
+    local bld="$MOCHI_BUILD/build-coreutils"
+    FORCE_UNSAFE_CONFIGURE=1 \
+    conf_build "$src" "$bld" --prefix=/usr
+    eval make -j"$JOBS" $MAKE_CC
+    make install
+    mark_built "coreutils"
+}
+
+# ---------------------------------------------------------------------------
+# Step 4 – System Utilities
+# ---------------------------------------------------------------------------
+build_system() {
+    hdr "[4/6] System Utilities"
+
+    # XZ
+    if ! skip_if_built "xz"; then
+    log "  -> XZ $XZ_VER"
+    local src="$MOCHI_SOURCES/xz-$XZ_VER"
+    local bld="$MOCHI_BUILD/build-xz"
+    conf_build "$src" "$bld" --prefix=/usr --disable-static
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "xz"
     fi
 
-    # --- Gzip ---
+    # Gzip
     if ! skip_if_built "gzip"; then
     log "  -> Gzip $GZIP_VER"
     src="$MOCHI_SOURCES/gzip-$GZIP_VER"
@@ -248,299 +323,180 @@ build_system() {
     mark_built "gzip"
     fi
 
-    # --- Tar ---
+    # Tar
     if ! skip_if_built "tar"; then
     log "  -> Tar $TAR_VER"
     src="$MOCHI_SOURCES/tar-$TAR_VER"
     bld="$MOCHI_BUILD/build-tar"
-    FORCE_UNSAFE_CONFIGURE=1 \
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --without-python
+    FORCE_UNSAFE_CONFIGURE=1 conf_build "$src" "$bld" --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "tar"
     fi
 
-    # --- Findutils ---
+    # Findutils
     if ! skip_if_built "findutils"; then
     log "  -> Findutils $FINDUTILS_VER"
     src="$MOCHI_SOURCES/findutils-$FINDUTILS_VER"
     bld="$MOCHI_BUILD/build-findutils"
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --localstatedir=/var/lib/locate \
-        --docdir=/usr/share/doc/findutils
+    conf_build "$src" "$bld" --prefix=/usr --localstatedir=/var/lib/locate
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "findutils"
     fi
 
-    # --- Util-linux ---
+    # Util-linux
     if ! skip_if_built "util-linux"; then
     log "  -> Util-linux $UTIL_LINUX_VER"
-
-    # Create root user/group if they don't exist (required for mount utility)
-    getent group root >/dev/null 2>&1 || groupadd -g 0 root
-    getent passwd root >/dev/null 2>&1 || useradd -u 0 -g 0 -d /root -s /bin/bash root
-
-    # Create tty group if it doesn't exist (required for wall utility)
-    getent group tty >/dev/null 2>&1 || groupadd -g 5 tty
-
+    getent group root >/dev/null || groupadd -g 0 root
+    getent passwd root >/dev/null || useradd -u 0 -g 0 -d /root -s /bin/bash root
+    getent group tty >/dev/null || groupadd -g 5 tty
     src="$MOCHI_SOURCES/util-linux-$UTIL_LINUX_VER"
     bld="$MOCHI_BUILD/build-util-linux"
     conf_build "$src" "$bld" \
         --prefix=/usr \
-        --bindir=/usr/bin \
-        --sbindir=/usr/sbin \
-        --libdir=/usr/lib \
-        --runstatedir=/run \
         --disable-chfn-chsh \
         --disable-login \
-        --disable-nologin \
         --disable-su \
-        --disable-setpriv \
-        --disable-runuser \
-        --disable-pylibmount \
-        --disable-static \
-        --disable-liblastlog2 \
-        --disable-lsfd \
-        --without-python \
-        ADJTIME_PATH=/var/lib/hwclock/adjtime \
-        --docdir=/usr/share/doc/util-linux
+        --without-python
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "util-linux"
     fi
 
-    # --- Inetutils ---
+    # Inetutils
     if ! skip_if_built "inetutils"; then
     log "  -> Inetutils $INETUTILS_VER"
     src="$MOCHI_SOURCES/inetutils-$INETUTILS_VER"
     bld="$MOCHI_BUILD/build-inetutils"
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --bindir=/usr/bin \
-        --localstatedir=/var \
-        --disable-logger \
-        --disable-whois \
-        --disable-rcp \
-        --disable-rexec \
-        --disable-rlogin \
-        --disable-rsh \
-        --disable-telnet \
-        --disable-telnetd \
-        --disable-servers
+    conf_build "$src" "$bld" --prefix=/usr --disable-servers
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "inetutils"
     fi
 
-    # --- Perl ---
+    # Perl
     if ! skip_if_built "perl"; then
     log "  -> Perl $PERL_VER"
     src="$MOCHI_SOURCES/perl-$PERL_VER"
-    require_src "$src"
     cd "$src"
-
-    # Clean any previous build
-    [ -f Makefile ] && make distclean 2>/dev/null || true
-
-    # Perl requires in-tree build
-    ./Configure -des \
-        -Dprefix=/usr \
-        -Dvendorprefix=/usr \
-        -Dprivlib=/usr/lib/perl5/core_perl \
-        -Darchlib=/usr/lib/perl5/core_perl \
-        -Dsitelib=/usr/lib/perl5/site_perl \
-        -Dsitearch=/usr/lib/perl5/site_perl \
-        -Dvendorlib=/usr/lib/perl5/vendor_perl \
-        -Dvendorarch=/usr/lib/perl5/vendor_perl \
-        -Dman1dir=/usr/share/man/man1 \
-        -Dman3dir=/usr/share/man/man3 \
-        -Duseshrplib \
-        -Dusethreads
+    [ -f Makefile ] && make distclean || true
+    ./Configure -des -Dprefix=/usr -Duseshrplib -Dusethreads
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "perl"
     fi
 
-    # --- Autoconf ---
-    if ! skip_if_built "autoconf"; then
-    log "  -> Autoconf $AUTOCONF_VER"
-    src="$MOCHI_SOURCES/autoconf-$AUTOCONF_VER"
-    bld="$MOCHI_BUILD/build-autoconf"
-    conf_build "$src" "$bld" \
-        --prefix=/usr
-    eval make -j"$JOBS" $MAKE_CC
-    make install
-    mark_built "autoconf"
-    fi
+    # Autoconf/Automake/Libtool
+    for tool in autoconf:$AUTOCONF_VER automake:$AUTOMAKE_VER libtool:$LIBTOOL_VER; do
+        local name="${tool%%:*}"
+        local ver="${tool##*:}"
+        if ! skip_if_built "$name"; then
+            log "  -> $name $ver"
+            src="$MOCHI_SOURCES/$name-$ver"
+            bld="$MOCHI_BUILD/build-$name"
+            conf_build "$src" "$bld" --prefix=/usr
+            eval make -j"$JOBS" $MAKE_CC
+            make install
+            mark_built "$name"
+        fi
+    done
 
-    # --- Automake ---
-    if ! skip_if_built "automake"; then
-    log "  -> Automake $AUTOMAKE_VER"
-    src="$MOCHI_SOURCES/automake-$AUTOMAKE_VER"
-    bld="$MOCHI_BUILD/build-automake"
-    conf_build "$src" "$bld" \
-        --prefix=/usr
-    eval make -j"$JOBS" $MAKE_CC
-    make install
-    mark_built "automake"
-    fi
-
-    # --- Libtool ---
-    if ! skip_if_built "libtool"; then
-    log "  -> Libtool $LIBTOOL_VER"
-    src="$MOCHI_SOURCES/libtool-$LIBTOOL_VER"
-    bld="$MOCHI_BUILD/build-libtool"
-    conf_build "$src" "$bld" \
-        --prefix=/usr
-    eval make -j"$JOBS" $MAKE_CC
-    make install
-    mark_built "libtool"
-    fi
-
-    # --- OpenSSL ---
+    # OpenSSL
     if ! skip_if_built "openssl"; then
     log "  -> OpenSSL $OPENSSL_VER"
     src="$MOCHI_SOURCES/openssl-$OPENSSL_VER"
-    require_src "$src"
     cd "$src"
-
-    # Clean any previous build
-    [ -f Makefile ] && make distclean 2>/dev/null || true
-
-    # OpenSSL requires in-tree build with custom Configure script
-    ./Configure linux-x86_64 \
-        --prefix=/usr \
-        --openssldir=/etc/ssl \
-        --libdir=lib \
-        shared \
-        zlib-dynamic
+    [ -f Makefile ] && make distclean || true
+    ./Configure linux-x86_64 --prefix=/usr --openssldir=/etc/ssl shared zlib-dynamic
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "openssl"
     fi
 
-    # --- Kmod ---
-    # SKIPPED: kmod has complex autotools dependencies
-    # The kernel modules can be managed manually if needed
-    log "  -> Kmod $KMOD_VER (SKIPPED - optional)"
-
-    # --- Bison ---
+    # Bison/Flex
     if ! skip_if_built "bison"; then
     log "  -> Bison $BISON_VER"
     src="$MOCHI_SOURCES/bison-$BISON_VER"
     bld="$MOCHI_BUILD/build-bison"
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --docdir=/usr/share/doc/bison
+    conf_build "$src" "$bld" --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "bison"
     fi
-
-    # --- Flex ---
     if ! skip_if_built "flex"; then
     log "  -> Flex $FLEX_VER"
     src="$MOCHI_SOURCES/flex-$FLEX_VER"
     bld="$MOCHI_BUILD/build-flex"
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --docdir=/usr/share/doc/flex
+    conf_build "$src" "$bld" --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "flex"
     fi
 
-    # --- Elfutils ---
+    # Elfutils
     if ! skip_if_built "elfutils"; then
     log "  -> Elfutils $ELFUTILS_VER"
     src="$MOCHI_SOURCES/elfutils-$ELFUTILS_VER"
     bld="$MOCHI_BUILD/build-elfutils"
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --disable-debuginfod \
-        --enable-libdebuginfod=dummy
-    # Build with -Wno-error to avoid const qualifier warnings
-    eval make -j"$JOBS" $MAKE_CC CFLAGS=\"-g -O2 -Wno-error\"
+    conf_build "$src" "$bld" --prefix=/usr --disable-debuginfod
+    eval make -j"$JOBS" $MAKE_CC CFLAGS="-g -O2 -Wno-error"
     make install
     mark_built "elfutils"
     fi
 
-    # --- Make ---
+    # Make
     if ! skip_if_built "make"; then
     log "  -> Make $MAKE_VER"
     src="$MOCHI_SOURCES/make-$MAKE_VER"
     bld="$MOCHI_BUILD/build-make"
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --without-guile \
-        --docdir=/usr/share/doc/make
+    conf_build "$src" "$bld" --prefix=/usr --without-guile
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "make"
     fi
 
-    # --- Nano ---
+    # Nano/Htop
     if ! skip_if_built "nano"; then
     log "  -> Nano $NANO_VER"
     src="$MOCHI_SOURCES/nano-$NANO_VER"
     bld="$MOCHI_BUILD/build-nano"
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --sysconfdir=/etc \
-        --enable-utf8 \
-        --docdir=/usr/share/doc/nano
+    conf_build "$src" "$bld" --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "nano"
     fi
-
-    # --- Htop ---
     if ! skip_if_built "htop"; then
     log "  -> Htop $HTOP_VER"
     src="$MOCHI_SOURCES/htop-$HTOP_VER"
     bld="$MOCHI_BUILD/build-htop"
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --sysconfdir=/etc
+    conf_build "$src" "$bld" --prefix=/usr
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "htop"
     fi
 
-    # --- CMake ---
+    # CMake/Fastfetch/Btop
     if ! skip_if_built "cmake"; then
     log "  -> CMake $CMAKE_VER"
     src="$MOCHI_SOURCES/cmake-$CMAKE_VER"
     bld="$MOCHI_BUILD/build-cmake"
-
-    mkdir -p "$bld"
-    cd "$bld"
+    mkdir -p "$bld" && cd "$bld"
     "$src/bootstrap" --prefix=/usr --parallel="$JOBS" -- -DBUILD_CursesDialog=OFF
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "cmake"
     fi
-
-    # --- Fastfetch ---
     if ! skip_if_built "fastfetch"; then
     log "  -> Fastfetch $FASTFETCH_VER"
     src="$MOCHI_SOURCES/fastfetch-$FASTFETCH_VER"
     bld="$MOCHI_BUILD/build-fastfetch"
-    mkdir -p "$bld"
-    cd "$bld"
-    cmake "$src" \
-        -DCMAKE_INSTALL_PREFIX=/usr \
-        -DCMAKE_BUILD_TYPE=Release
+    mkdir -p "$bld" && cd "$bld"
+    cmake "$src" -DCMAKE_INSTALL_PREFIX=/usr -DCMAKE_BUILD_TYPE=Release
     eval make -j"$JOBS"
     make install
     mark_built "fastfetch"
     fi
-
-    # --- Btop ---
     if ! skip_if_built "btop"; then
     log "  -> Btop $BTOP_VER"
     src="$MOCHI_SOURCES/btop-$BTOP_VER"
@@ -550,208 +506,77 @@ build_system() {
     mark_built "btop"
     fi
 
-    # --- Python ---
+    # Python
     if ! skip_if_built "python"; then
     log "  -> Python $PYTHON_VER"
     src="$MOCHI_SOURCES/Python-$PYTHON_VER"
     bld="$MOCHI_BUILD/build-python"
-
-    conf_build "$src" "$bld" \
-        --prefix=/usr \
-        --enable-shared \
-        --without-ensurepip
-
-    cd "$bld"
+    conf_build "$src" "$bld" --prefix=/usr --enable-shared --without-ensurepip
     eval make -j"$JOBS" $MAKE_CC
     make install
     mark_built "python"
     fi
 
-    # --- Init System ---
+    # Init & Sysutils
     if ! skip_if_built "init"; then
-    log "  -> MochiOS Init"
-
-    # Copy init source to build directory
-    local init_src="/init"
-    local init_bld="$MOCHI_BUILD/build-init"
-
-    if [ -d "$init_src" ]; then
-        rm -rf "$init_bld"
-        cp -r "$init_src" "$init_bld"
-        cd "$init_bld"
-
-        # Build init
-        eval make -j"$JOBS" $MAKE_CC
-
-        # Install to /sbin/init
-        install -D -m 755 build/init /sbin/init
-
-        log "Init system installed to /sbin/init"
-        mark_built "init"
-    else
-        log "Warning: Init source not found at $init_src, skipping"
+        if [ -d "/init" ]; then
+            cd "/init"
+            eval make -j"$JOBS" $MAKE_CC
+            install -D -m 755 build/init /sbin/init
+            mark_built "init"
+        fi
     fi
-    fi
-
-    # --- System Utilities (powerctl) ---
     if ! skip_if_built "sysutils"; then
-    log "  -> System Utilities"
-
-    # Copy sysutils source to build directory
-    local sysutils_src="/sysutils"
-    local sysutils_bld="$MOCHI_BUILD/build-sysutils"
-
-    if [ -d "$sysutils_src" ]; then
-        rm -rf "$sysutils_bld"
-        cp -r "$sysutils_src" "$sysutils_bld"
-        cd "$sysutils_bld"
-
-        # Build sysutils
-        eval make -j"$JOBS" $MAKE_CC
-
-        # Install to /sbin and /usr/bin
-        install -D -m 755 powerctl/powerctl /sbin/powerctl
-        ln -sf powerctl /sbin/poweroff
-        ln -sf powerctl /sbin/reboot
-        ln -sf powerctl /sbin/halt
-        install -D -m 755 launcher/launcher /usr/bin/launcher
-        install -D -m 755 launcher/mkappbundle /usr/bin/mkappbundle
-
-        log "System utilities installed (powerctl, poweroff, reboot, halt, launcher, mkappbundle)"
-        mark_built "sysutils"
-    else
-        log "Warning: Sysutils source not found at $sysutils_src, skipping"
+        if [ -d "/sysutils" ]; then
+            cd "/sysutils"
+            eval make -j"$JOBS" $MAKE_CC
+            install -D -m 755 powerctl/powerctl /sbin/powerctl
+            ln -sf powerctl /sbin/poweroff
+            ln -sf powerctl /sbin/reboot
+            ln -sf powerctl /sbin/halt
+            install -D -m 755 launcher/launcher /usr/bin/launcher
+            install -D -m 755 launcher/mkappbundle /usr/bin/mkappbundle
+            mark_built "sysutils"
+        fi
     fi
-    fi
-
-    log "System utilities installed"
 }
 
 # ---------------------------------------------------------------------------
-# Step 4 – Linux Kernel
+# Step 5 – Kernel
 # ---------------------------------------------------------------------------
 build_kernel() {
     skip_if_built "kernel" && return 0
-    hdr "[4/5] Linux Kernel $LINUX_VER"
+    hdr "[5/6] Linux Kernel $LINUX_VER"
     local src="$MOCHI_SOURCES/linux-$LINUX_VER"
     require_src "$src"
-
     cd "$src"
-
     make mrproper
-
-    # Use mochi.config if available, otherwise fall back to defconfig
-    : "${MOCHI_KCONFIG:=/sources/mochi.config}"
-    if [ -f "$MOCHI_KCONFIG" ]; then
-        log "Using kernel config: $MOCHI_KCONFIG"
-        cp "$MOCHI_KCONFIG" .config
-        # Silently accept any new symbols introduced since the config was generated
+    if [ -f "/sources/mochi.config" ]; then
+        cp "/sources/mochi.config" .config
         make olddefconfig
     else
-        log "WARNING: $MOCHI_KCONFIG not found – falling back to defconfig"
         make defconfig
-        make olddefconfig
     fi
-
     eval make -j"$JOBS" $KERNEL_CC bzImage modules
-
-    # Install kernel modules
     make modules_install INSTALL_MOD_PATH=/
-
-    # Install kernel image + support files to MochiOS boot directory
     mkdir -p "$BOOT_DIR"
-    cp arch/x86_64/boot/bzImage  "$BOOT_DIR/vmlinuz"
-    cp System.map                 "$BOOT_DIR/System.map"
-    cp .config                    "$BOOT_DIR/config-$LINUX_VER"
-
-    log "Kernel installed → $BOOT_DIR/vmlinuz"
-    log "Modules installed → /lib/modules"
+    cp arch/x86_64/boot/bzImage "$BOOT_DIR/vmlinuz"
     mark_built "kernel"
 }
 
 # ---------------------------------------------------------------------------
-# Step 5 – Linux Firmware
+# Step 6 – Firmware
 # ---------------------------------------------------------------------------
 build_firmware() {
     skip_if_built "firmware" && return 0
-    hdr "[5/6] Linux Firmware"
-
+    hdr "[6/6] Linux Firmware"
     local fw_src="$MOCHI_SOURCES/linux-firmware-20260309"
     local fw_dir="/System/Library/Kernel/Firmware"
-
-    if [ ! -d "$fw_src" ]; then
-        log "Warning: Linux firmware source not found at $fw_src"
-        log "Make sure to run 'scripts/buildworld.sh fetch' first to extract firmware"
-        return 0
+    if [ -d "$fw_src" ]; then
+        mkdir -p "$fw_dir"
+        cp -r "$fw_src"/* "$fw_dir/"
+        mark_built "firmware"
     fi
-
-    # Create firmware directory
-    mkdir -p "$fw_dir"
-
-    log "Installing all firmware from $fw_src..."
-    log "This may take a few moments..."
-
-    # Copy all firmware files and directories
-    cp -r "$fw_src"/* "$fw_dir/"
-
-    # Count installed files
-    local fw_count=$(find "$fw_dir" -type f | wc -l)
-    local fw_size=$(du -sh "$fw_dir" | cut -f1)
-
-    log "Firmware installed to $fw_dir"
-    log "  Files: $fw_count"
-    log "  Size: $fw_size"
-    mark_built "firmware"
-}
-
-# ---------------------------------------------------------------------------
-# Step 6 – GRUB
-# ---------------------------------------------------------------------------
-build_grub() {
-    hdr "[6/6] GRUB Bootloader (SKIPPED - optional)"
-    log "  -> GRUB configuration (SKIPPED - bootloader can be configured manually)"
-    return 0
-
-    skip_if_built "grub" && return 0
-
-    mkdir -p "$BOOT_DIR/grub"
-
-    # Write grub.cfg
-    cat > "$BOOT_DIR/grub/grub.cfg" << 'GRUBCFG'
-set default=0
-set timeout=5
-
-insmod part_gpt
-insmod fat
-insmod ext2
-
-menuentry "MochiOS" {
-    search --no-floppy --set=root --label MOCHIOS_ROOT
-    linux  /System/Library/Kernel/vmlinuz \
-           root=LABEL=MOCHIOS_ROOT rw quiet splash
-    initrd /System/Library/Kernel/initrd.img
-}
-
-menuentry "MochiOS (recovery mode)" {
-    search --no-floppy --set=root --label MOCHIOS_ROOT
-    linux  /System/Library/Kernel/vmlinuz \
-           root=LABEL=MOCHIOS_ROOT rw init=/bin/bash
-    initrd /System/Library/Kernel/initrd.img
-}
-GRUBCFG
-
-    # Create a minimal /etc/default/grub
-    mkdir -p /etc/default
-    cat > /etc/default/grub << 'EOF'
-GRUB_DEFAULT=0
-GRUB_TIMEOUT=5
-GRUB_DISTRIBUTOR="MochiOS"
-GRUB_CMDLINE_LINUX_DEFAULT="quiet splash"
-GRUB_CMDLINE_LINUX=""
-EOF
-
-    log "GRUB config written → $BOOT_DIR/grub/grub.cfg"
-    log "NOTE: grub-install is run by createimage.sh during image creation"
 }
 
 # ---------------------------------------------------------------------------
@@ -761,56 +586,41 @@ usage() {
     cat <<EOF
 Usage: $0 [STEP]
 
-Steps (run in order, inside MochiOS chroot):
-  bash       Build and install Bash
-  coreutils  Build and install GNU Coreutils
-  system     Build and install system utilities
-               (ncurses, zlib, xz, gzip, tar, findutils,
-                util-linux, inetutils, kmod, make, nano, htop,
-                cmake, fastfetch, btop, python, init, sysutils)
-  kernel     Build and install Linux kernel + modules
-  firmware   Install Linux firmware (i915, amdgpu, CPU microcode)
-  grub       Write GRUB configuration
+Steps:
+  toolchain  Build native GCC, Binutils, GMP, MPFR, MPC, ISL, Ncurses, Zlib
+  bash       Build Bash
+  coreutils  Build Coreutils
+  system     Build system utilities (XZ, Gzip, Tar, Perl, etc.)
+  kernel     Build Linux kernel
+  firmware   Install firmware
   all        Run all steps in order (default)
-
-Environment:
-  MOCHI_SOURCES  Extracted sources  (default: /sources)
-  MOCHI_BUILD    Temp build dirs    (default: /build)
-  JOBS           Parallel jobs      (default: nproc)
 EOF
 }
 
 main() {
     setup_build_mode
-
-    log "MochiOS Chroot Build"
-    log "  Sources : $MOCHI_SOURCES"
-    log "  Build   : $MOCHI_BUILD"
-    log "  Boot    : $BOOT_DIR"
-    log "  Jobs    : $JOBS"
-
+    log "MochiOS Chroot Build Started"
     mkdir -p "$MOCHI_BUILD"
 
     local step="${1:-all}"
     case "$step" in
+        toolchain) build_toolchain ;;
         bash)      build_bash ;;
         coreutils) build_coreutils ;;
         system)    build_system ;;
         kernel)    build_kernel ;;
         firmware)  build_firmware ;;
-        grub)      build_grub ;;
         all)
+            build_toolchain
             build_bash
             build_coreutils
             build_system
             build_kernel
             build_firmware
-            build_grub
             ;;
         help|-h|--help) usage ;;
         *) usage; die "Unknown step: '$step'" ;;
     esac
-
     log "==> Chroot step '$step' complete"
 }
 

@@ -70,6 +70,8 @@ SOURCES_LIST=(
     "https://mirror.cyberbits.asia/gnu/gzip/gzip-1.14.tar.xz"
     "https://mirror.cyberbits.asia/gnu/tar/tar-1.35.tar.xz"
     "https://mirrors.edge.kernel.org/pub/linux/utils/kernel/kmod/kmod-34.tar.xz"
+    "https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz"
+    "https://mirror.cyberbits.asia/gnu/gmp/gmp-6.3.0.tar.xz"
     "https://www.mpfr.org/mpfr-4.2.1/mpfr-4.2.1.tar.xz"
     "https://mirror.cyberbits.asia/gnu/mpc/mpc-1.3.1.tar.gz"
     "https://libisl.sourceforge.io/isl-0.27.tar.xz"
@@ -483,6 +485,8 @@ cmd_rootfs() {
     # Internal System/ compat symlinks
     ln -sfn usr/bin   "$MOCHI_ROOTFS/System/bin"   2>/dev/null || true
     ln -sfn usr/sbin  "$MOCHI_ROOTFS/System/sbin"  2>/dev/null || true
+    ln -sfn usr/lib   "$MOCHI_ROOTFS/System/lib"   2>/dev/null || true
+    ln -sfn usr/lib64 "$MOCHI_ROOTFS/System/lib64" 2>/dev/null || true
 
     # Root-level symlinks (matching rootfs.txt)
     ln -sfn System/usr/bin                              "$MOCHI_ROOTFS/bin"   2>/dev/null || true
@@ -550,9 +554,11 @@ _umount_chroot() {
     umount -l    "$MOCHI_ROOTFS/sources"      2>/dev/null || true
     umount -l    "$MOCHI_ROOTFS/build"        2>/dev/null || true
     umount -l    "$MOCHI_ROOTFS/cross"        2>/dev/null || true
-    umount -l    "$MOCHI_ROOTFS/host-bin"     2>/dev/null || true
-    umount -l    "$MOCHI_ROOTFS/host-lib64"   2>/dev/null || true
-    umount -l    "$MOCHI_ROOTFS/host-usrlib"  2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/host-bin"       2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/host-lib"       2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/host-lib64"     2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/host-usr-lib"   2>/dev/null || true
+    umount -l    "$MOCHI_ROOTFS/host-usr-lib64" 2>/dev/null || true
 
     # Give kernel time to clean up lazy unmounts
     sleep 0.5
@@ -583,38 +589,60 @@ _setup_chroot_toolchain() {
     mkdir -p "$MOCHI_ROOTFS/host-bin"
     mount --bind /usr/bin "$MOCHI_ROOTFS/host-bin"
 
-    # Bind-mount the directory containing the host ld-linux + glibc so the
-    # cross-compiler binary can resolve its own shared-library dependencies.
-    mkdir -p "$MOCHI_ROOTFS/host-lib64"
-    mount --bind "$host_lib64_dir" "$MOCHI_ROOTFS/host-lib64"
+    # Bind-mount all host library paths to ensure sub-processes find dependencies.
+    mkdir -p "$MOCHI_ROOTFS/host-lib" "$MOCHI_ROOTFS/host-lib64" \
+             "$MOCHI_ROOTFS/host-usr-lib" "$MOCHI_ROOTFS/host-usr-lib64"
+    mount --bind /lib       "$MOCHI_ROOTFS/host-lib"       2>/dev/null || true
+    mount --bind /lib64     "$MOCHI_ROOTFS/host-lib64"     2>/dev/null || true
+    mount --bind /usr/lib   "$MOCHI_ROOTFS/host-usr-lib"   2>/dev/null || true
+    mount --bind /usr/lib64 "$MOCHI_ROOTFS/host-usr-lib64" 2>/dev/null || true
 
-    # Also mount /usr/lib for extra host libraries (mpc, mpfr, gmp, z, …)
-    mkdir -p "$MOCHI_ROOTFS/host-usrlib"
-    mount --bind /usr/lib "$MOCHI_ROOTFS/host-usrlib" 2>/dev/null || true
-
-    local chroot_ld="/host-lib64/$(basename "$host_ld")"
-    local chroot_lp="/host-lib64:/host-usrlib"
+    # Find where the linker actually ended up in the chroot
+    local chroot_ld=""
+    for _try in "/host-lib64/$(basename "$host_ld")" \
+                "/host-lib/$(basename "$host_ld")" \
+                "/host-usr-lib/$(basename "$host_ld")"; do
+        if [ -e "$MOCHI_ROOTFS/$_try" ]; then
+            chroot_ld="$_try"
+            break
+        fi
+    done
+    : "${chroot_ld:=/host-lib64/$(basename "$host_ld")}"
+    local chroot_lp="/host-lib:/host-lib64:/host-usr-lib:/host-usr-lib64:/cross/lib:/cross/lib64"
 
     # Write thin wrappers into the rootfs so the chroot sees a native toolchain
     local wrap_dir="$MOCHI_ROOTFS/usr/bin"
     mkdir -p "$wrap_dir"
 
     for _t in gcc cc; do
-        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-gcc --sysroot=/ -Wl,-rpath,/usr/lib "$@"\n' \
-            "$chroot_ld" "$chroot_lp" "$MOCHI_TARGET" > "$wrap_dir/$_t"
+        [ -e "$wrap_dir/$_t" ] && continue
+        printf '#!/bin/sh\nexport LD_LIBRARY_PATH="%s"\nexec %s --library-path "$LD_LIBRARY_PATH" /cross/bin/%s-gcc --sysroot=/ -Wl,-rpath,/usr/lib "$@"\n' \
+            "$chroot_lp" "$chroot_ld" "$MOCHI_TARGET" > "$wrap_dir/$_t"
         chmod +x "$wrap_dir/$_t"
     done
 
     for _t in g++ c++; do
-        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-g++ --sysroot=/ -Wl,-rpath,/usr/lib "$@"\n' \
-            "$chroot_ld" "$chroot_lp" "$MOCHI_TARGET" > "$wrap_dir/$_t"
+        [ -e "$wrap_dir/$_t" ] && continue
+        printf '#!/bin/sh\nexport LD_LIBRARY_PATH="%s"\nexec %s --library-path "$LD_LIBRARY_PATH" /cross/bin/%s-g++ --sysroot=/ -Wl,-rpath,/usr/lib "$@"\n' \
+            "$chroot_lp" "$chroot_ld" "$MOCHI_TARGET" > "$wrap_dir/$_t"
         chmod +x "$wrap_dir/$_t"
     done
 
-    for _b in ar nm ranlib strip ld objdump objcopy readelf; do
-        printf '#!/bin/sh\nexec %s --library-path %s /cross/bin/%s-%s "$@"\n' \
-            "$chroot_ld" "$chroot_lp" "$MOCHI_TARGET" "$_b" > "$wrap_dir/$_b"
+    for _b in ar nm ranlib strip ld as objdump objcopy readelf; do
+        [ -e "$wrap_dir/$_b" ] && continue
+        printf '#!/bin/sh\nexport LD_LIBRARY_PATH="%s"\nexec %s --library-path "$LD_LIBRARY_PATH" /cross/bin/%s-%s "$@"\n' \
+            "$chroot_lp" "$chroot_ld" "$MOCHI_TARGET" "$_b" > "$wrap_dir/$_b"
         chmod +x "$wrap_dir/$_b"
+    done
+
+    # Wrap essential host utilities so they run with host linker/libraries
+    for _u in sed grep gawk awk make m4 perl python3 patch diff bison flex tar gzip xz find; do
+        [ -e "$wrap_dir/$_u" ] && continue
+        if [ -e "$MOCHI_ROOTFS/host-bin/$_u" ]; then
+            printf '#!/bin/sh\nexport LD_LIBRARY_PATH="%s"\nexec %s --library-path "$LD_LIBRARY_PATH" /host-bin/%s "$@"\n' \
+                "$chroot_lp" "$chroot_ld" "$_u" > "$wrap_dir/$_u"
+            chmod +x "$wrap_dir/$_u"
+        fi
     done
 
     log "Chroot toolchain wrappers created (cross → $MOCHI_TARGET, sysroot=/)"
@@ -672,7 +700,6 @@ _enter_chroot() {
         TERM="${TERM:-xterm}"
         PS1='(mochios) \u:\w\$ '
         PATH=/usr/bin:/usr/sbin:/bin:/sbin:/host-bin
-        LD_LIBRARY_PATH=/host-lib64:/host-usrlib
         MOCHI_SOURCES=/sources
         MOCHI_BUILD=/build
         MOCHI_KCONFIG=/sources/mochi.config
@@ -703,6 +730,7 @@ cmd_shell() {
     hdr "MochiOS Chroot Shell"
     require_root
     _ensure_host_devpts
+    _setup_chroot_toolchain
     _mount_chroot
     mkdir -p "$MOCHI_ROOTFS/sources"
     mount --bind "$MOCHI_SOURCES" "$MOCHI_ROOTFS/sources"

@@ -8,8 +8,8 @@ set -euo pipefail
 echo "[MochiOS] Installing all dependencies in one go..."
 
 # Sync and install everything
-pacman -Syu --noconfirm --needed \
-    base-devel gcc g++ make cmake ninja binutils bison flex gawk patch diffutils coreutils file rsync git \
+pacman -Syu --noconfirm \
+    base-devel gcc make cmake ninja binutils bison flex gawk patch diffutils coreutils file rsync git \
     gmp mpfr libmpc isl autoconf automake libtool m4 pkgconf texinfo help2man \
     aria2 wget curl ca-certificates unzip jq zlib bzip2 xz gzip tar zstd openssl \
     libelf ncurses bc pahole cpio kmod parted gptfdisk dosfstools e2fsprogs util-linux \

@@ -62,42 +62,46 @@ populate_headers() {
 # Step 1 – Copy glibc from sysroot into rootfs
 # ---------------------------------------------------------------------------
 populate_glibc() {
-    hdr "[1/3] Copying glibc libraries to rootfs"
+    hdr "[1/3] Consolidating glibc libraries to rootfs"
 
     local rootlib="$MOCHI_ROOTFS/System/usr/lib"
-    local rootsyslib="$MOCHI_ROOTFS/System/lib"
-    local rootsyslib64="$MOCHI_ROOTFS/System/lib64"
     mkdir -p "$rootlib"
-    mkdir -p "$rootsyslib" "$rootsyslib64"
 
-    # Copy all shared libraries, static archives, and CRT object files
-    cp -a "$MOCHI_SYSROOT/usr/lib/"*.so*  "$rootlib/" 2>/dev/null || true
-    cp -a "$MOCHI_SYSROOT/usr/lib/"*.a    "$rootlib/" 2>/dev/null || true
-    cp -a "$MOCHI_SYSROOT/usr/lib/"*.o    "$rootlib/" 2>/dev/null || true
-
-    # The ELF interpreter (ld-linux) and some core runtime objects may live
-    # in /lib or /lib64 instead of /usr/lib.
-    cp -a "$MOCHI_SYSROOT/lib/"*.so*      "$rootsyslib/" 2>/dev/null || true
-    cp -a "$MOCHI_SYSROOT/lib/"*.a        "$rootsyslib/" 2>/dev/null || true
-    cp -a "$MOCHI_SYSROOT/lib/"*.o        "$rootsyslib/" 2>/dev/null || true
-    cp -a "$MOCHI_SYSROOT/lib64/"*.so*    "$rootsyslib64/" 2>/dev/null || true
-    cp -a "$MOCHI_SYSROOT/lib64/"*.a      "$rootsyslib64/" 2>/dev/null || true
-    cp -a "$MOCHI_SYSROOT/lib64/"*.o      "$rootsyslib64/" 2>/dev/null || true
-
-    # glibc also installs to /usr/lib/gconv/, /usr/lib/audit/, etc.
-    for subdir in gconv audit; do
-        [ -d "$MOCHI_SYSROOT/usr/lib/$subdir" ] && \
-            cp -a "$MOCHI_SYSROOT/usr/lib/$subdir" "$rootlib/" 2>/dev/null || true
+    # Merged-usr layout: Ensure System/{lib,lib64} are symlinks to usr/lib
+    for link in "$MOCHI_ROOTFS/System/lib" "$MOCHI_ROOTFS/System/lib64"; do
+        if [ ! -L "$link" ]; then
+            rm -rf "$link"
+            ln -sfn usr/lib "$link"
+            log "  created link: System/$(basename "$link") -> usr/lib"
+        fi
     done
 
-    # Ensure lib64 → lib symlink so ELF interpreter /lib64/ld-linux-x86-64.so.2 resolves
+    # And System/usr/lib64 -> lib
     if [ ! -L "$MOCHI_ROOTFS/System/usr/lib64" ]; then
         rm -rf "$MOCHI_ROOTFS/System/usr/lib64"
         ln -sfn lib "$MOCHI_ROOTFS/System/usr/lib64"
-        log "Created System/usr/lib64 → lib"
+        log "  created link: System/usr/lib64 -> lib"
     fi
 
-    log "Glibc libraries installed → $rootlib"
+    # Copy all shared libraries, static archives, and CRT object files from sysroot.
+    # We collect from /lib, /lib64 and /usr/lib into our single /System/usr/lib.
+    log "  copying from sysroot {lib,lib64,usr/lib} -> System/usr/lib"
+    for sdir in lib lib64 usr/lib; do
+        if [ -d "$MOCHI_SYSROOT/$sdir" ]; then
+            cp -a "$MOCHI_SYSROOT/$sdir/"*.so* "$rootlib/" 2>/dev/null || true
+            cp -a "$MOCHI_SYSROOT/$sdir/"*.a   "$rootlib/" 2>/dev/null || true
+            cp -a "$MOCHI_SYSROOT/$sdir/"*.o   "$rootlib/" 2>/dev/null || true
+        fi
+    done
+
+    # glibc also installs to /usr/lib/gconv/, /usr/lib/audit/, etc.
+    for subdir in gconv audit; do
+        if [ -d "$MOCHI_SYSROOT/usr/lib/$subdir" ]; then
+            cp -a "$MOCHI_SYSROOT/usr/lib/$subdir" "$rootlib/" 2>/dev/null || true
+        fi
+    done
+
+    log "Glibc libraries consolidated → $rootlib"
 }
 
 # ---------------------------------------------------------------------------

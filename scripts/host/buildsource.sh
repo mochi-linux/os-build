@@ -12,7 +12,7 @@ set -euo pipefail
 : "${MOCHI_SYSROOT:=$MOCHI_BUILD/sysroot}"
 : "${MOCHI_CROSS:=$MOCHI_BUILD/cross}"
 : "${MOCHI_TARGET:=x86_64-mochios-linux-gnu}"
-: "${JOBS:=$(($(nproc) * 2 +8))}"
+: "${JOBS:=$(($(nproc) * 4))}"
 : "${BUILD_MODE:=host}"  # host or cluster
 
 # Package versions (mirror SOURCES.txt)
@@ -20,6 +20,8 @@ LINUX_VER="7.0-rc5"
 BINUTILS_VER="2.46.0"
 GCC_VER="15.2.0"
 GLIBC_VER="2.43"
+ZSTD_VER="1.5.6"
+GMP_VER="6.3.0"
 MPFR_VER="4.2.1"
 MPC_VER="1.3.1"
 ISL_VER="0.27"
@@ -81,7 +83,7 @@ ensure_headers() {
 # Link GCC prerequisite libraries into the GCC source tree
 link_gcc_prereqs() {
     local gcc_src="$MOCHI_SOURCES/gcc-$GCC_VER"
-    for pair in "mpfr:mpfr-$MPFR_VER" "mpc:mpc-$MPC_VER" "isl:isl-$ISL_VER"; do
+    for pair in "gmp:gmp-$GMP_VER" "mpfr:mpfr-$MPFR_VER" "mpc:mpc-$MPC_VER" "isl:isl-$ISL_VER"; do
         local lname="${pair%%:*}"
         local dname="${pair##*:}"
         if [ ! -e "$gcc_src/$lname" ]; then
@@ -96,7 +98,7 @@ link_gcc_prereqs() {
 # Step 1 – Linux Kernel Headers
 # ---------------------------------------------------------------------------
 build_headers() {
-    hdr "[1/5] Linux Kernel Headers (linux-$LINUX_VER)"
+    hdr "[1/6] Linux Kernel Headers (linux-$LINUX_VER)"
     local src="$MOCHI_SOURCES/linux-$LINUX_VER"
     require_src "$src"
 
@@ -113,10 +115,23 @@ build_headers() {
 }
 
 # ---------------------------------------------------------------------------
-# Step 2 – Cross Binutils
+# Step 2 – Zstd (host support for GCC)
+# ---------------------------------------------------------------------------
+build_zstd() {
+    hdr "Zstd $ZSTD_VER"
+    local src="$MOCHI_SOURCES/zstd-$ZSTD_VER"
+    require_src "$src"
+
+    cd "$src"
+    make -j"$JOBS" PREFIX="$MOCHI_CROSS"
+    make install PREFIX="$MOCHI_CROSS"
+}
+
+# ---------------------------------------------------------------------------
+# Step 3 – Cross Binutils
 # ---------------------------------------------------------------------------
 build_binutils() {
-    hdr "[2/5] Binutils $BINUTILS_VER"
+    hdr "[3/6] Binutils $BINUTILS_VER"
     local src="$MOCHI_SOURCES/binutils-$BINUTILS_VER"
     local bld="$MOCHI_BUILD/build-binutils"
     require_src "$src"
@@ -152,7 +167,7 @@ build_binutils() {
 # Step 3 – GCC Stage 1  (no libc, C + minimal C++ only)
 # ---------------------------------------------------------------------------
 build_gcc_stage1() {
-    hdr "[3/5] GCC $GCC_VER – Stage 1 (cross, no libc)"
+    hdr "[4/6] GCC $GCC_VER – Stage 1 (cross, no libc)"
     local src="$MOCHI_SOURCES/gcc-$GCC_VER"
     local bld="$MOCHI_BUILD/build-gcc-stage1"
     require_src "$src"
@@ -185,6 +200,7 @@ build_gcc_stage1() {
             --disable-libssp \
             --disable-libvtv \
             --disable-libstdcxx \
+            --with-zstd="$MOCHI_CROSS" \
             --enable-languages=c,c++
 
         touch "$bld/.configured"
@@ -202,7 +218,7 @@ build_gcc_stage1() {
 # Step 4 – Glibc  (cross-compiled against stage-1 GCC)
 # ---------------------------------------------------------------------------
 build_glibc() {
-    hdr "[4/5] Glibc $GLIBC_VER"
+    hdr "[5/6] Glibc $GLIBC_VER"
     local src="$MOCHI_SOURCES/glibc-$GLIBC_VER"
     local bld="$MOCHI_BUILD/build-glibc"
     require_src "$src"
@@ -249,7 +265,7 @@ build_glibc() {
 # Step 5 – GCC Stage 2  (full cross compiler with glibc support)
 # ---------------------------------------------------------------------------
 build_gcc_stage2() {
-    hdr "[5/5] GCC $GCC_VER – Stage 2 (full cross compiler)"
+    hdr "[6/6] GCC $GCC_VER – Stage 2 (full cross compiler)"
     local src="$MOCHI_SOURCES/gcc-$GCC_VER"
     local bld="$MOCHI_BUILD/build-gcc-stage2"
     require_src "$src"
@@ -281,6 +297,7 @@ build_gcc_stage2() {
             --disable-libgomp \
             --disable-libquadmath \
             --disable-libatomic \
+            --with-zstd="$MOCHI_CROSS" \
             ac_cv_sys_file_offset_bits=no
 
         touch "$bld/.configured"
@@ -311,6 +328,7 @@ Usage: $0 [STEP]
 
 Steps (run in order):
   headers    Install Linux kernel headers to sysroot
+  zstd       Build zstd (host library for GCC)
   binutils   Build cross binutils
   gcc1       Build GCC stage 1 (no libc)
   glibc      Build glibc against stage-1 GCC
@@ -345,12 +363,14 @@ main() {
     local step="${1:-all}"
     case "$step" in
         headers)  build_headers ;;
+        zstd)     build_zstd ;;
         binutils) build_binutils ;;
         gcc1)     ensure_headers; build_gcc_stage1 ;;
         glibc)    build_glibc ;;
         gcc2)     ensure_headers; build_gcc_stage2 ;;
         all)
             build_headers
+            build_zstd
             build_binutils
             build_gcc_stage1
             build_glibc
